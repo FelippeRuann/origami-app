@@ -1,0 +1,294 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useApp } from '../context/AppContext';
+
+const { width } = Dimensions.get('window');
+
+function ForcaSenha({ forca = 2, theme }) {
+  const cores = [theme.danger, theme.warning, theme.primary];
+  const labels = ['Fraca', 'Média', 'Forte'];
+  return (
+    <View style={{ marginTop: 8 }}>
+      <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
+        {[0, 1, 2].map(i => (
+          <View key={i} style={{
+            flex: 1, height: 3, borderRadius: 3,
+            backgroundColor: i <= forca ? cores[forca] : 'rgba(255,255,255,0.1)',
+          }} />
+        ))}
+      </View>
+      <Text style={{ fontSize: 11, color: cores[forca] }}>Senha {labels[forca]}</Text>
+    </View>
+  );
+}
+
+export default function Auth() {
+  const [step, setStep] = useState('initial'); // 'initial', 'login', 'register'
+  const [nivel, setNivel] = useState('Iniciante');
+  const [aceitaTermos, setAceitaTermos] = useState(false);
+  const { login, theme } = useApp();
+
+  if (step === 'initial') {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <View style={[styles.circuloGrande, { backgroundColor: theme.secondary }]} />
+        <View style={[styles.circuloPequeno, { backgroundColor: theme.card }]} />
+        <View style={[styles.circuloMeio, { borderColor: theme.primary }]} />
+
+        <View style={styles.centro}>
+          <View style={styles.logoWrap}>
+            <View style={[styles.logoCirculo, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}>
+              <Feather name="feather" size={48} color={theme.primary} />
+            </View>
+            <View style={[styles.logoDot, { backgroundColor: theme.primary }]} />
+          </View>
+
+          <Text style={[styles.titulo, { color: theme.text }]}>OrigamiApp</Text>
+          <Text style={[styles.subtitulo, { color: theme.textMuted }]}>
+            Descubra, organize e compartilhe{'\n'}suas criações de origami
+          </Text>
+        </View>
+
+        <View style={styles.base}>
+          <TouchableOpacity style={[styles.btnPrimario, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => setStep('login')}>
+            <Text style={[styles.btnPrimarioText, { color: theme.bg }]}>Começar agora</Text>
+          </TouchableOpacity> 
+          
+          <TouchableOpacity style={[styles.btnSecundario, { borderColor: theme.border }]} onPress={() => setStep('register')}>
+            <Text style={[styles.btnSecundarioText, { color: theme.text }]}>Criar conta</Text>
+          </TouchableOpacity> 
+        
+          <Text style={[styles.termos, { color: theme.textDim }]}>
+            Ao continuar, você aceita os{' '}
+            <Text style={{ color: theme.primary }}>Termos de Uso</Text>
+            {' '}e a{' '}
+            <Text style={{ color: theme.primary }}>Política de Privacidade</Text>
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (step === 'login') {
+    return (
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: theme.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={[styles.bgTop, { backgroundColor: theme.secondary }]} />
+
+        <View style={styles.header}>
+          <TouchableOpacity style={[styles.voltar, { backgroundColor: theme.surface }]} onPress={() => setStep('initial')}>
+            <Feather name="arrow-left" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <View style={[styles.logoMini, { backgroundColor: theme.secondary, borderColor: theme.primary }]}>
+            <Feather name="feather" size={20} color={theme.primary} />
+          </View>
+        </View>
+
+        <View style={styles.tituloWrap}>
+          <Text style={[styles.tituloScreen, { color: theme.text }]}>Bem-vindo de volta</Text>
+          <Text style={[styles.subtituloScreen, { color: theme.textMuted }]}>Entre para continuar dobrando</Text>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.campo}>
+            <Text style={[styles.campoLabel, { color: theme.textDim }]}>E-mail</Text>
+            <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+              <Feather name="mail" size={16} color={theme.textDim} />
+              <TextInput style={[styles.input, { color: theme.text }]} placeholder="seu@email.com" placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" />
+            </View>
+          </View>
+
+          <View style={styles.campo}>
+            <Text style={[styles.campoLabel, { color: theme.textDim }]}>Senha</Text>
+            <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+              <Feather name="lock" size={16} color={theme.textDim} />
+              <TextInput style={[styles.input, { color: theme.text }]} placeholder="••••••••" placeholderTextColor={theme.textDim} secureTextEntry />
+              <TouchableOpacity><Feather name="eye" size={18} color={theme.textDim} /></TouchableOpacity>
+            </View>
+          </View>
+
+          <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 24 }}>
+            <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600' }}>Esqueci minha senha</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.btnEntrar, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => login('email')}>
+            <Text style={[styles.btnEntrarText, { color: theme.bg }]}>Entrar</Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider}>
+            <View style={[styles.dividerLinha, { backgroundColor: theme.border }]} />
+            <Text style={[styles.dividerText, { color: theme.textDim }]}>ou continue com</Text>
+            <View style={[styles.dividerLinha, { backgroundColor: theme.border }]} />
+          </View>
+
+          <View style={styles.sociais}>
+            {[['chrome', 'Google'], ['apple', 'Apple']].map(([icon, label]) => (
+              <TouchableOpacity key={label} style={[styles.btnSocial, { borderColor: theme.border, backgroundColor: theme.bg }]} onPress={() => login(label.toLowerCase())}>
+                <Feather name={icon} size={18} color={theme.text} />
+                <Text style={[styles.btnSocialText, { color: theme.text }]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.rodape}>
+          <Text style={[styles.rodapeText, { color: theme.textMuted }]}>Não tem conta? </Text>
+          <TouchableOpacity onPress={() => setStep('register')}>
+            <Text style={[styles.rodapeLink, { color: theme.primary }]}>Criar conta</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return (
+    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
+      <View style={[styles.bgCircle1, { backgroundColor: theme.card }]} />
+      <View style={[styles.bgCircle2, { backgroundColor: theme.secondary }]} />
+
+      <View style={styles.header}>
+        <TouchableOpacity style={[styles.voltar, { backgroundColor: theme.surface }]} onPress={() => setStep('initial')}>
+          <Feather name="arrow-left" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Criar conta</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <View style={styles.avatarSection}>
+        <View style={[styles.avatarGrande, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}>
+          <Feather name="star" size={52} color={theme.primary} />
+        </View>
+        <TouchableOpacity style={[styles.trocarAvatar, { borderColor: theme.primary }]}>
+          <Text style={[styles.trocarAvatarText, { color: theme.primary }]}>Escolher avatar</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.form}>
+        <View style={styles.campo}>
+          <Text style={[styles.campoLabel, { color: theme.textDim }]}>Nome de usuário</Text>
+          <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <Feather name="user" size={16} color={theme.textDim} />
+            <TextInput style={[styles.input, { color: theme.text }]} placeholder="ex: paper.crane" placeholderTextColor={theme.textDim} autoCapitalize="none" />
+            <View style={[styles.disponivelBadge, { backgroundColor: theme.primary }]}>
+              <Feather name="check" size={12} color={theme.bg} />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.campo}>
+          <Text style={[styles.campoLabel, { color: theme.textDim }]}>E-mail</Text>
+          <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <Feather name="mail" size={16} color={theme.textDim} />
+            <TextInput style={[styles.input, { color: theme.text }]} placeholder="seu@email.com" placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" />
+          </View>
+        </View>
+
+        <View style={styles.campo}>
+          <Text style={[styles.campoLabel, { color: theme.textDim }]}>Senha</Text>
+          <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <Feather name="lock" size={16} color={theme.textDim} />
+            <TextInput style={[styles.input, { color: theme.text }]} placeholder="Mínimo 8 caracteres" placeholderTextColor={theme.textDim} secureTextEntry />
+          </View>
+          <ForcaSenha forca={2} theme={theme} />
+        </View>
+
+        <View style={styles.campo}>
+          <Text style={[styles.campoLabel, { color: theme.textDim }]}>Nível de origami</Text>
+          <View style={styles.nivelRow}>
+            {['Iniciante', 'Intermediário', 'Avançado'].map((n) => (
+              <TouchableOpacity key={n} onPress={() => setNivel(n)} style={[styles.nivelBtn, { borderColor: theme.border }, nivel === n && { backgroundColor: theme.primary, borderColor: theme.primary }]}>
+                <Text style={[styles.nivelBtnText, { color: theme.textDim }, nivel === n && { color: theme.bg, fontWeight: '800' }]}>{n}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.termosRow} onPress={() => setAceitaTermos(!aceitaTermos)} activeOpacity={0.8}>
+          <View style={[styles.checkbox, { borderColor: theme.border, borderWidth: aceitaTermos ? 0 : 1.5 }, aceitaTermos && { backgroundColor: theme.primary }]}>
+            {aceitaTermos && <Feather name="check" size={12} color={theme.bg} />}
+          </View>
+          <Text style={[styles.termosText, { color: theme.textDim }]}>
+            Aceito os <Text style={{ color: theme.primary }}>Termos de Uso</Text> e a <Text style={{ color: theme.primary }}>Política de Privacidade</Text>
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.btnCriar, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => login('email')}>
+          <Text style={[styles.btnCriarText, { color: theme.bg }]}>Criar minha conta</Text>
+          <Feather name="arrow-right" size={20} color={theme.bg} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.rodape}>
+        <Text style={[styles.rodapeText, { color: theme.textMuted }]}>Já tem conta? </Text>
+        <TouchableOpacity onPress={() => setStep('login')}>
+          <Text style={[styles.rodapeLink, { color: theme.primary }]}>Entrar</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, overflow: 'hidden' },
+  // Initial
+  circuloGrande: { position: 'absolute', width: 400, height: 400, borderRadius: 200, top: -100, right: -100, opacity: 0.8 },
+  circuloPequeno: { position: 'absolute', width: 200, height: 200, borderRadius: 100, bottom: 100, left: -60, opacity: 0.5 },
+  circuloMeio: { position: 'absolute', width: 150, height: 150, borderRadius: 75, borderWidth: 2, bottom: 200, right: 20, opacity: 0.2 },
+  centro: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: 60 },
+  logoWrap: { position: 'relative', marginBottom: 24 },
+  logoCirculo: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 },
+  logoDot: { position: 'absolute', width: 20, height: 20, borderRadius: 10, bottom: 4, right: 4 },
+  titulo: { fontSize: 36, fontWeight: '800', letterSpacing: -1, marginBottom: 12 },
+  subtitulo: { fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 40 },
+  base: { paddingHorizontal: 24, paddingBottom: 48, gap: 12 },
+  btnPrimario: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8 },
+  btnPrimarioText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  btnSecundario: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', borderWidth: 1.5 },
+  btnSecundarioText: { fontSize: 15, fontWeight: '600' },
+  termos: { fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 4 },
+
+  // Login
+  bgTop: { position: 'absolute', top: -80, left: -80, width: 300, height: 300, borderRadius: 150, opacity: 0.8 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 8 },
+  voltar: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  logoMini: { width: 40, height: 40, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  tituloWrap: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 28 },
+  tituloScreen: { fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginBottom: 6 },
+  subtituloScreen: { fontSize: 14 },
+  card: { marginHorizontal: 16, borderRadius: 24, padding: 22, borderWidth: 1 },
+  campo: { marginBottom: 16 },
+  campoLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 14, gap: 10 },
+  input: { flex: 1, paddingVertical: 14, fontSize: 14 },
+  btnEntrar: { borderRadius: 14, paddingVertical: 16, alignItems: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
+  btnEntrarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
+  dividerLinha: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12 },
+  sociais: { flexDirection: 'row', gap: 12 },
+  btnSocial: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5 },
+  btnSocialText: { fontSize: 13, fontWeight: '600' },
+  rodape: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 20 },
+  rodapeText: { fontSize: 14 },
+  rodapeLink: { fontSize: 14, fontWeight: '700' },
+
+  // Register
+  bgCircle1: { position: 'absolute', width: 250, height: 250, borderRadius: 125, top: -60, right: -60, opacity: 0.4 },
+  bgCircle2: { position: 'absolute', width: 180, height: 180, borderRadius: 90, top: 40, right: 40, opacity: 0.6 },
+  headerTitle: { fontSize: 17, fontWeight: '700' },
+  avatarSection: { alignItems: 'center', marginBottom: 24, marginTop: 20 },
+  avatarGrande: { width: 90, height: 90, borderRadius: 45, borderWidth: 3, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 15, elevation: 8 },
+  trocarAvatar: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  trocarAvatarText: { fontSize: 12, fontWeight: '600' },
+  form: { paddingHorizontal: 20, gap: 6 },
+  disponivelBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  disponivelText: { fontSize: 11, fontWeight: '800' },
+  nivelRow: { flexDirection: 'row', gap: 8 },
+  nivelBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, alignItems: 'center' },
+  nivelBtnText: { fontSize: 11, fontWeight: '600' },
+  termosRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 20, marginTop: 4 },
+  checkbox: { width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
+  termosText: { fontSize: 12, lineHeight: 18, flex: 1 },
+  btnCriar: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 8 },
+  btnCriarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+});

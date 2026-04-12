@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Origami App",
+    "slug": "origami-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "navigationBar": {
+        "visible": "sticky-immersive"
+      },
+      "package": "com.anonymous.origamiapp"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "dc73338d-fb1a-4e11-b3a2-ed150f7736c3"
+      }
+    }
+  }
+}
