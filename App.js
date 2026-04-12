@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet, View, Platform } from 'react-native';
+import * as NavigationBar from 'expo-navigation-bar';
 import { AppProvider, useApp } from './src/context/AppContext';
 import Auth from './src/screens/Auth';
 import Discover from './src/screens/Discover';
@@ -8,6 +9,7 @@ import Profile from './src/screens/Profile';
 import TeacherPro from './src/screens/TeacherPro';
 import DetailScreen from './src/screens/DetailScreen';
 import Layout from './src/components/Layout';
+import TestFirebase from './src/screens/TesteFirebase'; // Importe a tela de teste do Firebase
 
 function MainNavigator() {
   const { user, isDarkMode, theme, currentDetail, currentRoute, setCurrentRoute } = useApp();
@@ -27,6 +29,7 @@ function MainNavigator() {
 
     const screens = {
       Discover: <Discover />,
+      TestFirebase: <TestFirebase />,
       Library: <Library />,
       TeacherPro: <TeacherPro />,
       Profile: <Profile />
@@ -39,7 +42,7 @@ function MainNavigator() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#000' : '#E2E8F0' }]}>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar hidden={true} />
       <View style={[styles.appWrapper, { backgroundColor: theme.bg }]}>
         {renderContent()}
       </View>
@@ -48,6 +51,13 @@ function MainNavigator() {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync("hidden");
+      NavigationBar.setBehaviorAsync("overlay-swipe");
+    }
+  }, []);
+
   return (
     <AppProvider>
       <MainNavigator />
