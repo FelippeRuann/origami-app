@@ -27,7 +27,74 @@ export default function Auth() {
   const [step, setStep] = useState('initial'); // 'initial', 'login', 'register'
   const [nivel, setNivel] = useState('Iniciante');
   const [aceitaTermos, setAceitaTermos] = useState(false);
-  const { login, theme } = useApp();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [avatarIcon, setAvatarIcon] = useState('star');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const { login, register, theme, resetPassword } = useApp();
+
+  const calcularForcaSenha = (senha) => {
+    if (!senha || senha.length < 6) return 0; // Fraca
+    if (senha.length >= 8 && /[A-Z]/.test(senha) && /[0-9]/.test(senha)) return 2; // Forte
+    return 1; // Média
+  };
+
+  const handleLogin = async () => {
+    if (!email || !password) return;
+    setLoading(true);
+    const result = await login(email, password);
+    setLoading(false);
+    if (!result.success) {
+      let mensagem = "Erro ao fazer login.";
+      if (result.error.includes('invalid-email')) mensagem = "E-mail inválido. Verifique se você digitou corretamente.";
+      if (result.error.includes('user-not-found') || result.error.includes('invalid-credential')) mensagem = "E-mail ou senha incorretos.";
+      if (result.error.includes('too-many-requests')) mensagem = "Muitas tentativas. Tente novamente mais tarde.";
+      alert(mensagem);
+    }
+  };
+
+  const handleRegister = async () => {
+    if (!aceitaTermos) {
+      alert("Você precisa aceitar os Termos de Uso para criar uma conta.");
+      return;
+    }
+    if (!username || username.length < 3) {
+      alert("O nome de usuário deve ter pelo menos 3 caracteres.");
+      return;
+    }
+    if (!email || !password) return;
+    
+    if (password.length < 6) {
+      alert("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setLoading(true);
+    const result = await register(email, password, username, avatarIcon, nivel);
+    setLoading(false);
+    if (!result.success) {
+      let mensagem = "Erro ao criar conta.";
+      if (result.error.includes('invalid-email')) mensagem = "E-mail inválido. Verifique se você digitou corretamente (ex: nome@email.com).";
+      if (result.error.includes('email-already-in-use')) mensagem = "Este e-mail já está cadastrado. Tente fazer login.";
+      if (result.error.includes('weak-password')) mensagem = "A senha é muito fraca. Escolha uma senha mais forte.";
+      alert(mensagem);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      alert("Por favor, digite seu e-mail no campo acima para redefinir a senha.");
+      return;
+    }
+    const result = await resetPassword(email);
+    if (result.success) {
+      alert("E-mail de redefinição enviado! Verifique sua caixa de entrada.");
+    } else {
+      alert("Erro ao redefinir senha: " + result.error);
+    }
+  };
 
   if (step === 'initial') {
     return (
@@ -94,7 +161,15 @@ export default function Auth() {
             <Text style={[styles.campoLabel, { color: theme.textDim }]}>E-mail</Text>
             <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
               <Feather name="mail" size={16} color={theme.textDim} />
-              <TextInput style={[styles.input, { color: theme.text }]} placeholder="seu@email.com" placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" />
+              <TextInput 
+                style={[styles.input, { color: theme.text }]} 
+                placeholder="seu@email.com" 
+                placeholderTextColor={theme.textDim} 
+                keyboardType="email-address" 
+                autoCapitalize="none" 
+                value={email}
+                onChangeText={setEmail}
+              />
             </View>
           </View>
 
@@ -102,17 +177,32 @@ export default function Auth() {
             <Text style={[styles.campoLabel, { color: theme.textDim }]}>Senha</Text>
             <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
               <Feather name="lock" size={16} color={theme.textDim} />
-              <TextInput style={[styles.input, { color: theme.text }]} placeholder="••••••••" placeholderTextColor={theme.textDim} secureTextEntry />
-              <TouchableOpacity><Feather name="eye" size={18} color={theme.textDim} /></TouchableOpacity>
+              <TextInput 
+                style={[styles.input, { color: theme.text }]} 
+                placeholder="••••••••" 
+                placeholderTextColor={theme.textDim} 
+                secureTextEntry={!showPassword} 
+                value={password}
+                onChangeText={setPassword}
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 4 }}>
+                <Feather name={showPassword ? "eye" : "eye-off"} size={18} color={theme.textDim} />
+              </TouchableOpacity>
             </View>
           </View>
 
-          <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 24 }}>
+          <TouchableOpacity style={{ alignSelf: 'flex-end', marginBottom: 24 }} onPress={handleForgotPassword}>
             <Text style={{ fontSize: 12, color: theme.primary, fontWeight: '600' }}>Esqueci minha senha</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.btnEntrar, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => login('email')}>
-            <Text style={[styles.btnEntrarText, { color: theme.bg }]}>Entrar</Text>
+          <TouchableOpacity 
+            style={[styles.btnEntrar, { backgroundColor: theme.primary, shadowColor: theme.primary, opacity: loading ? 0.7 : 1 }]} 
+            onPress={handleLogin}
+            disabled={loading}
+          >
+            <Text style={[styles.btnEntrarText, { color: theme.bg }]}>
+              {loading ? "Entrando..." : "Entrar"}
+            </Text>
           </TouchableOpacity>
 
           <View style={styles.divider}>
@@ -156,10 +246,17 @@ export default function Auth() {
 
       <View style={styles.avatarSection}>
         <View style={[styles.avatarGrande, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}>
-          <Feather name="star" size={52} color={theme.primary} />
+          <Feather name={avatarIcon} size={52} color={theme.primary} />
         </View>
-        <TouchableOpacity style={[styles.trocarAvatar, { borderColor: theme.primary }]}>
-          <Text style={[styles.trocarAvatarText, { color: theme.primary }]}>Escolher avatar</Text>
+        <TouchableOpacity 
+          style={[styles.trocarAvatar, { borderColor: theme.primary }]}
+          onPress={() => {
+            const icons = ['star', 'heart', 'smile', 'sun', 'moon', 'coffee', 'feather', 'anchor', 'music', 'camera'];
+            const next = icons[(icons.indexOf(avatarIcon) + 1) % icons.length];
+            setAvatarIcon(next);
+          }}
+        >
+          <Text style={[styles.trocarAvatarText, { color: theme.primary }]}>Trocar ícone</Text>
         </TouchableOpacity>
       </View>
 
@@ -168,10 +265,19 @@ export default function Auth() {
           <Text style={[styles.campoLabel, { color: theme.textDim }]}>Nome de usuário</Text>
           <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
             <Feather name="user" size={16} color={theme.textDim} />
-            <TextInput style={[styles.input, { color: theme.text }]} placeholder="ex: paper.crane" placeholderTextColor={theme.textDim} autoCapitalize="none" />
-            <View style={[styles.disponivelBadge, { backgroundColor: theme.primary }]}>
-              <Feather name="check" size={12} color={theme.bg} />
-            </View>
+            <TextInput 
+              style={[styles.input, { color: theme.text }]} 
+              placeholder="ex: paper.crane" 
+              placeholderTextColor={theme.textDim} 
+              autoCapitalize="none" 
+              value={username}
+              onChangeText={setUsername}
+            />
+            {username.length >= 3 && (
+              <View style={[styles.disponivelBadge, { backgroundColor: theme.primary }]}>
+                <Feather name="check" size={12} color={theme.bg} />
+              </View>
+            )}
           </View>
         </View>
 
@@ -179,7 +285,15 @@ export default function Auth() {
           <Text style={[styles.campoLabel, { color: theme.textDim }]}>E-mail</Text>
           <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
             <Feather name="mail" size={16} color={theme.textDim} />
-            <TextInput style={[styles.input, { color: theme.text }]} placeholder="seu@email.com" placeholderTextColor={theme.textDim} keyboardType="email-address" autoCapitalize="none" />
+            <TextInput 
+              style={[styles.input, { color: theme.text }]} 
+              placeholder="seu@email.com" 
+              placeholderTextColor={theme.textDim} 
+              keyboardType="email-address" 
+              autoCapitalize="none" 
+              value={email}
+              onChangeText={setEmail}
+            />
           </View>
         </View>
 
@@ -187,9 +301,19 @@ export default function Auth() {
           <Text style={[styles.campoLabel, { color: theme.textDim }]}>Senha</Text>
           <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
             <Feather name="lock" size={16} color={theme.textDim} />
-            <TextInput style={[styles.input, { color: theme.text }]} placeholder="Mínimo 8 caracteres" placeholderTextColor={theme.textDim} secureTextEntry />
+            <TextInput 
+              style={[styles.input, { color: theme.text }]} 
+              placeholder="Mínimo 8 caracteres" 
+              placeholderTextColor={theme.textDim} 
+              secureTextEntry={!showPassword} 
+              value={password}
+              onChangeText={setPassword}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={{ padding: 4, marginRight: 6 }}>
+              <Feather name={showPassword ? "eye" : "eye-off"} size={18} color={theme.textDim} />
+            </TouchableOpacity>
           </View>
-          <ForcaSenha forca={2} theme={theme} />
+          <ForcaSenha forca={calcularForcaSenha(password)} theme={theme} />
         </View>
 
         <View style={styles.campo}>
@@ -212,8 +336,14 @@ export default function Auth() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.btnCriar, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => login('email')}>
-          <Text style={[styles.btnCriarText, { color: theme.bg }]}>Criar minha conta</Text>
+        <TouchableOpacity 
+          style={[styles.btnCriar, { backgroundColor: theme.primary, shadowColor: theme.primary, opacity: loading ? 0.7 : 1 }]} 
+          onPress={handleRegister}
+          disabled={loading}
+        >
+          <Text style={[styles.btnCriarText, { color: theme.bg }]}>
+            {loading ? "Criando..." : "Criar minha conta"}
+          </Text>
           <Feather name="arrow-right" size={20} color={theme.bg} />
         </TouchableOpacity>
       </View>

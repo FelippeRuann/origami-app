@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -12,8 +13,10 @@ const ACHIEVEMENTS = [
 ];
 
 export default function Profile({ openDrawer }) {
-  const { user, theme } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar } = useApp();
   const [showSettings, setShowSettings] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -32,7 +35,36 @@ export default function Profile({ openDrawer }) {
       Animated.timing(slideAnim, { toValue: 400, duration: 250, useNativeDriver: true })
     ]).start(() => {
       setShowSettings(false);
+      setShowEditProfile(false); // Reseta o menu ao fechar
     });
+  };
+
+  const handlePickImage = async () => {
+    // Pedir permissão para acessar a galeria
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (permissionResult.granted === false) {
+      alert("Precisamos da sua permissão para acessar a galeria!");
+      return;
+    }
+
+    // Abrir a galeria
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1], // Cortar em quadrado
+      quality: 0.5, // Comprimir a imagem para não ficar muito pesada
+    });
+
+    if (!result.canceled) {
+      setUploadingAvatar(true);
+      const response = await updateAvatar(result.assets[0].uri);
+      setUploadingAvatar(false);
+      
+      if (!response.success) {
+        alert("Erro ao atualizar foto: " + response.error);
+      }
+    }
   };
 
   return (
@@ -51,14 +83,29 @@ export default function Profile({ openDrawer }) {
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View style={s.header}>
-          <View style={[s.avatarWrap, { borderColor: theme.primary, backgroundColor: theme.secondary }]}>
-            <Feather name="user" size={40} color={theme.primary} />
+          <TouchableOpacity 
+            style={[s.avatarWrap, { borderColor: theme.primary, backgroundColor: theme.secondary }]}
+            onPress={handlePickImage}
+            disabled={uploadingAvatar}
+          >
+            {uploadingAvatar ? (
+              <ActivityIndicator color={theme.primary} size="large" />
+            ) : user?.photo?.startsWith('http') ? (
+              <Image source={{ uri: user.photo }} style={s.avatarImage} />
+            ) : (
+              <Feather name={user?.photo || 'user'} size={40} color={theme.primary} />
+            )}
+            
+            <View style={[s.editBadge, { backgroundColor: theme.primary, borderColor: theme.bg }]}>
+              <Feather name="camera" size={12} color={theme.bg} />
+            </View>
+
             {user?.isPro && (
               <View style={[s.proBadge, { backgroundColor: theme.primary }]}>
                 <Text style={[s.proText, { color: theme.bg }]}>PRO</Text>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
           <Text style={[s.name, { color: theme.text }]}>{user?.name || 'Origami Master'}</Text>
           <Text style={[s.email, { color: theme.textMuted }]}>{user?.email || 'master@origamiapp.com'}</Text>
           
@@ -103,19 +150,64 @@ export default function Profile({ openDrawer }) {
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleCloseSettings} />
           <Animated.View style={[s.modalContent, { backgroundColor: theme.bg, borderColor: theme.border, transform: [{ translateY: slideAnim }] }]}>
             <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: theme.text }]}>Account Settings</Text>
+              <Text style={[s.modalTitle, { color: theme.text }]}>
+                {showEditProfile ? 'Editar Perfil' : 'Configurações'}
+              </Text>
               <TouchableOpacity onPress={handleCloseSettings} style={s.closeBtn}>
                 <Feather name="x" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-            <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              {['Edit Profile', 'Notifications', 'Subscription', 'Help & Support'].map((link, i) => (
-                <TouchableOpacity key={link} style={[s.linkRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                  <Text style={[s.linkText, { color: theme.text }]}>{link}</Text>
-                  <Feather name="chevron-right" size={20} color={theme.textDim} />
+
+            {showEditProfile ? (
+              <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <TouchableOpacity style={s.linkRow} onPress={handlePickImage}>
+                  <Text style={[s.linkText, { color: theme.primary }]}>Escolher nova foto da galeria</Text>
+                  <Feather name="image" size={20} color={theme.primary} />
                 </TouchableOpacity>
-              ))}
-            </View>
+                <TouchableOpacity 
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} 
+                  onPress={async () => {
+                    setUploadingAvatar(true);
+                    await removeAvatar();
+                    setUploadingAvatar(false);
+                    setShowEditProfile(false);
+                  }}
+                >
+                  <Text style={[s.linkText, { color: theme.danger }]}>Remover foto atual</Text>
+                  <Feather name="trash-2" size={20} color={theme.danger} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} 
+                  onPress={() => setShowEditProfile(false)}
+                >
+                  <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
+                  <Feather name="arrow-left" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <TouchableOpacity style={s.linkRow} onPress={() => setShowEditProfile(true)}>
+                  <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil (Foto)</Text>
+                  <Feather name="edit-2" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+                {['Notificações', 'Assinatura Pro', 'Ajuda e Suporte'].map((link, i) => (
+                  <TouchableOpacity key={link} style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                    <Text style={[s.linkText, { color: theme.text }]}>{link}</Text>
+                    <Feather name="chevron-right" size={20} color={theme.textDim} />
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity 
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                  onPress={() => {
+                    handleCloseSettings();
+                    logout();
+                  }}
+                >
+                  <Text style={[s.linkText, { color: theme.danger }]}>Sair da Conta</Text>
+                  <Feather name="log-out" size={20} color={theme.danger} />
+                </TouchableOpacity>
+              </View>
+            )}
           </Animated.View>
         </Animated.View>
       </Modal>
@@ -140,6 +232,8 @@ const s = StyleSheet.create({
 
   header: { alignItems: 'center', paddingVertical: 30 },
   avatarWrap: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 50 },
+  editBadge: { position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   proBadge: { position: 'absolute', bottom: -8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   proText: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   name: { fontSize: 24, fontWeight: '800', marginBottom: 4 },

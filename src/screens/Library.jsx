@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -11,20 +12,42 @@ const PROJECTS = [
 ];
 
 const SAVED = [
-  { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#F59E0B', icon: 'github', bg: '#C2410C' },
-  { id: '2', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#3B82F6', icon: 'feather', bg: '#0E7490' },
+  { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#3B82F6', icon: 'github', bg: '#C2410C' },
+  { id: '2', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#F59E0B', icon: 'feather', bg: '#0E7490' },
   { id: '3', title: 'Jumping Frog',  difficulty: 'BEGINNER',     difficultyColor: '#22C55E', icon: 'smile', bg: '#15803D' },
   { id: '4', title: 'Paper Plane',   difficulty: 'BEGINNER',     difficultyColor: '#22C55E', icon: 'send', bg: '#4338CA' },
 ];
 
-const FILES = [
+const INITIAL_FILES = [
   { id: '1', title: 'Origami_Basics.pdf', size: '2.4 MB' },
   { id: '2', title: 'Advanced_Dragons.pdf', size: '5.1 MB' },
 ];
 
 export default function Library({ openDrawer }) {
   const [tab, setTab] = useState('Projects'); // 'Projects' | 'Saved' | 'Files'
+  const [files, setFiles] = useState(INITIAL_FILES);
   const { theme, setCurrentDetail } = useApp();
+
+  const handleImportPDF = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const newFile = {
+          id: Date.now().toString(),
+          title: file.name,
+          size: file.size ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : 'Unknown size'
+        };
+        setFiles([newFile, ...files]);
+      }
+    } catch (error) {
+      console.error("Erro ao importar PDF:", error);
+    }
+  };
 
   return (
     <View style={[s.root, { backgroundColor: theme.bg }]}>
@@ -100,12 +123,12 @@ export default function Library({ openDrawer }) {
 
         {tab === 'Files' && (
           <View style={s.filesList}>
-            <TouchableOpacity style={[s.importBtn, { borderColor: theme.primary, backgroundColor: theme.primaryLight }]}>
+            <TouchableOpacity style={[s.importBtn, { borderColor: theme.primary, backgroundColor: theme.primaryLight }]} onPress={handleImportPDF}>
               <Feather name="upload-cloud" size={24} color={theme.primary} style={{ marginBottom: 8 }} />
               <Text style={[s.importText, { color: theme.primary }]}>Import PDF</Text>
             </TouchableOpacity>
 
-            {FILES.map(f => (
+            {files.map(f => (
               <View key={f.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <View style={[s.fileIcon, { backgroundColor: theme.bg }]}>
                   <Feather name="file-text" size={20} color={theme.danger} />

@@ -13,9 +13,9 @@ const CATEGORIES = [
 ];
 
 const RECOMMENDED = [
-  { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#F59E0B', time: '15 min', steps: '12 steps', icon: 'github', bg: '#C2410C' },
-  { id: '2', title: 'Classic Crane', difficulty: 'BEGINNER',     difficultyColor: '#22C55E', time: '8 min',  steps: '18 steps', icon: 'twitter', bg: '#BE123C' },
-  { id: '3', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#3B82F6', time: '35 min', steps: '42 steps', icon: 'feather', bg: '#0E7490' },
+  { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#3B82F6', time: '15 min', steps: '25 steps', icon: 'github', bg: '#0E7490' },
+  { id: '2', title: 'Classic Crane', difficulty: 'BEGINNER',     difficultyColor: '#22C55E', time: '8 min',  steps: '12 steps', icon: 'twitter', bg: '#BE123C' },
+  { id: '3', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#F59E0B', time: '35 min', steps: '42 steps', icon: 'feather', bg: '#C2410C' },
 ];
 
 function HeroBanner({ theme }) {

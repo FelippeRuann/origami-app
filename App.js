@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, View, Platform } from 'react-native';
+import { SafeAreaView, StyleSheet, View, Platform } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { AppProvider, useApp } from './src/context/AppContext';
 import Auth from './src/screens/Auth';
@@ -9,12 +10,16 @@ import Profile from './src/screens/Profile';
 import TeacherPro from './src/screens/TeacherPro';
 import DetailScreen from './src/screens/DetailScreen';
 import Layout from './src/components/Layout';
-import TestFirebase from './src/screens/TesteFirebase'; // Importe a tela de teste do Firebase
 
 function MainNavigator() {
-  const { user, isDarkMode, theme, currentDetail, currentRoute, setCurrentRoute } = useApp();
+  const { user, isDarkMode, theme, currentDetail, currentRoute, setCurrentRoute, isAuthReady } = useApp();
 
   const renderContent = () => {
+    // Se o Firebase ainda não terminou de checar se tem alguém logado, mostra uma tela vazia
+    if (!isAuthReady) {
+      return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
+    }
+
     if (!user) {
       return <Auth />;
     }
@@ -29,7 +34,6 @@ function MainNavigator() {
 
     const screens = {
       Discover: <Discover />,
-      TestFirebase: <TestFirebase />,
       Library: <Library />,
       TeacherPro: <TeacherPro />,
       Profile: <Profile />
@@ -41,12 +45,12 @@ function MainNavigator() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#000' : '#E2E8F0' }]}>
+    <View style={[styles.container, { backgroundColor: isDarkMode ? '#000' : '#E2E8F0' }]}>
       <StatusBar hidden={true} />
       <View style={[styles.appWrapper, { backgroundColor: theme.bg }]}>
         {renderContent()}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
