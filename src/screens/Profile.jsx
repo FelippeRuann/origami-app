@@ -12,8 +12,8 @@ const ACHIEVEMENTS = [
   { id: '3', icon: 'star', title: 'First Creation', desc: 'Upload your first custom PDF', unlocked: true },
 ];
 
-export default function Profile({ openDrawer }) {
-  const { user, theme, logout, updateAvatar, removeAvatar } = useApp();
+export default function Profile() {
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -71,13 +71,15 @@ export default function Profile({ openDrawer }) {
     <View style={[s.root, { backgroundColor: theme.bg }]}>
       {/* Top bar */}
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
-        <TouchableOpacity onPress={openDrawer}>
-          <Feather name="menu" size={24} color={theme.primary} />
-        </TouchableOpacity>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
-        <TouchableOpacity style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={handleOpenSettings}>
-          <Feather name="settings" size={20} color={theme.text} />
-        </TouchableOpacity>
+        <View style={s.topBarActions}>
+          <TouchableOpacity style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginRight: 10 }]} onPress={toggleTheme}>
+            <Feather name={isDarkMode ? 'sun' : 'moon'} size={20} color={theme.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={handleOpenSettings}>
+            <Feather name="settings" size={20} color={theme.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
@@ -223,6 +225,10 @@ const s = StyleSheet.create({
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 52, paddingBottom: 12,
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   logo:      { fontSize: 22, fontWeight: '800' },
   settingsBtn: {

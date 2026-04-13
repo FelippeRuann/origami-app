@@ -9,10 +9,11 @@ import Library from './src/screens/Library';
 import Profile from './src/screens/Profile';
 import TeacherPro from './src/screens/TeacherPro';
 import DetailScreen from './src/screens/DetailScreen';
+import FoldingScreen from './src/screens/FoldingScreen';
 import Layout from './src/components/Layout';
 
 function MainNavigator() {
-  const { user, isDarkMode, theme, currentDetail, currentRoute, setCurrentRoute, isAuthReady } = useApp();
+  const { user, isDarkMode, theme, currentDetail, foldingOrigami, currentRoute, setCurrentRoute, isAuthReady } = useApp();
 
   const renderContent = () => {
     // Se o Firebase ainda não terminou de checar se tem alguém logado, mostra uma tela vazia
@@ -22,6 +23,14 @@ function MainNavigator() {
 
     if (!user) {
       return <Auth />;
+    }
+
+    if (foldingOrigami) {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+          <FoldingScreen />
+        </View>
+      );
     }
 
     if (currentDetail) {

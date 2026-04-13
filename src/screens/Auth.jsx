@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, KeyboardAvoidingView, Platform, Dimensions, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -31,6 +32,7 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [avatarIcon, setAvatarIcon] = useState('star');
+  const [avatarImageUri, setAvatarImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { login, register, theme, resetPassword } = useApp();
@@ -51,48 +53,48 @@ export default function Auth() {
       if (result.error.includes('invalid-email')) mensagem = "E-mail inválido. Verifique se você digitou corretamente.";
       if (result.error.includes('user-not-found') || result.error.includes('invalid-credential')) mensagem = "E-mail ou senha incorretos.";
       if (result.error.includes('too-many-requests')) mensagem = "Muitas tentativas. Tente novamente mais tarde.";
-      alert(mensagem);
+      Alert.alert("Ops!", mensagem);
     }
   };
 
   const handleRegister = async () => {
     if (!aceitaTermos) {
-      alert("Você precisa aceitar os Termos de Uso para criar uma conta.");
+      Alert.alert("Atenção", "Você precisa aceitar os Termos de Uso para criar uma conta.");
       return;
     }
     if (!username || username.length < 3) {
-      alert("O nome de usuário deve ter pelo menos 3 caracteres.");
+      Alert.alert("Atenção", "O nome de usuário deve ter pelo menos 3 caracteres.");
       return;
     }
     if (!email || !password) return;
     
     if (password.length < 6) {
-      alert("A senha deve ter pelo menos 6 caracteres.");
+      Alert.alert("Atenção", "A senha deve ter pelo menos 6 caracteres.");
       return;
     }
 
     setLoading(true);
-    const result = await register(email, password, username, avatarIcon, nivel);
+    const result = await register(email, password, username, avatarIcon, nivel, avatarImageUri);
     setLoading(false);
     if (!result.success) {
       let mensagem = "Erro ao criar conta.";
       if (result.error.includes('invalid-email')) mensagem = "E-mail inválido. Verifique se você digitou corretamente (ex: nome@email.com).";
       if (result.error.includes('email-already-in-use')) mensagem = "Este e-mail já está cadastrado. Tente fazer login.";
       if (result.error.includes('weak-password')) mensagem = "A senha é muito fraca. Escolha uma senha mais forte.";
-      alert(mensagem);
+      Alert.alert("Ops!", mensagem);
     }
   };
 
   const handleForgotPassword = async () => {
     if (!email) {
-      alert("Por favor, digite seu e-mail no campo acima para redefinir a senha.");
+      Alert.alert("Atenção", "Por favor, digite seu e-mail no campo acima para redefinir a senha.");
       return;
     }
     const result = await resetPassword(email);
     if (result.success) {
-      alert("E-mail de redefinição enviado! Verifique sua caixa de entrada.");
+      Alert.alert("Sucesso", "E-mail de redefinição enviado! Verifique sua caixa de entrada.");
     } else {
-      alert("Erro ao redefinir senha: " + result.error);
+      Alert.alert("Erro", "Erro ao redefinir senha: " + result.error);
     }
   };
 
@@ -212,7 +214,7 @@ export default function Auth() {
           </View>
 
           <View style={styles.sociais}>
-            {[['chrome', 'Google'], ['apple', 'Apple']].map(([icon, label]) => (
+            {[['chrome', 'Google'], ['smartphone', 'Celular']].map(([icon, label]) => (
               <TouchableOpacity key={label} style={[styles.btnSocial, { borderColor: theme.border, backgroundColor: theme.bg }]} onPress={() => login(label.toLowerCase())}>
                 <Feather name={icon} size={18} color={theme.text} />
                 <Text style={[styles.btnSocialText, { color: theme.text }]}>{label}</Text>
@@ -245,19 +247,57 @@ export default function Auth() {
       </View>
 
       <View style={styles.avatarSection}>
-        <View style={[styles.avatarGrande, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}>
-          <Feather name={avatarIcon} size={52} color={theme.primary} />
-        </View>
         <TouchableOpacity 
-          style={[styles.trocarAvatar, { borderColor: theme.primary }]}
-          onPress={() => {
-            const icons = ['star', 'heart', 'smile', 'sun', 'moon', 'coffee', 'feather', 'anchor', 'music', 'camera'];
-            const next = icons[(icons.indexOf(avatarIcon) + 1) % icons.length];
-            setAvatarIcon(next);
+          style={[styles.avatarGrande, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}
+          onPress={async () => {
+            const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (permissionResult.granted === false) {
+              Alert.alert("Atenção", "Precisamos da sua permissão para acessar a galeria!");
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.5,
+            });
+            if (!result.canceled) {
+              setAvatarImageUri(result.assets[0].uri);
+            }
           }}
         >
-          <Text style={[styles.trocarAvatarText, { color: theme.primary }]}>Trocar ícone</Text>
+          {avatarImageUri ? (
+            <Image source={{ uri: avatarImageUri }} style={{ width: '100%', height: '100%', borderRadius: 45 }} />
+          ) : (
+            <Feather name={avatarIcon} size={52} color={theme.primary} />
+          )}
+          <View style={[styles.editBadge, { backgroundColor: theme.primary, borderColor: theme.bg }]}>
+            <Feather name="camera" size={12} color={theme.bg} />
+          </View>
         </TouchableOpacity>
+        
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity 
+            style={[styles.trocarAvatar, { borderColor: theme.primary }]}
+            onPress={() => {
+              setAvatarImageUri(null); // Remove a imagem se escolher trocar o ícone
+              const icons = ['star', 'heart', 'smile', 'sun', 'moon', 'coffee', 'feather', 'anchor', 'music', 'camera'];
+              const next = icons[(icons.indexOf(avatarIcon) + 1) % icons.length];
+              setAvatarIcon(next);
+            }}
+          >
+            <Text style={[styles.trocarAvatarText, { color: theme.primary }]}>Trocar ícone</Text>
+          </TouchableOpacity>
+          
+          {avatarImageUri && (
+            <TouchableOpacity 
+              style={[styles.trocarAvatar, { borderColor: theme.danger }]}
+              onPress={() => setAvatarImageUri(null)}
+            >
+              <Text style={[styles.trocarAvatarText, { color: theme.danger }]}>Remover foto</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <View style={styles.form}>
@@ -408,6 +448,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: '700' },
   avatarSection: { alignItems: 'center', marginBottom: 24, marginTop: 20 },
   avatarGrande: { width: 90, height: 90, borderRadius: 45, borderWidth: 3, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 15, elevation: 8 },
+  editBadge: { position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   trocarAvatar: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   trocarAvatarText: { fontSize: 12, fontWeight: '600' },
   form: { paddingHorizontal: 20, gap: 6 },

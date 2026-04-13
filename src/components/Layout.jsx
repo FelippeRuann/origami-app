@@ -4,47 +4,13 @@ import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
-const DRAWER_WIDTH = Math.min(width * 0.75, 300);
 
 export default function Layout({ screens, currentRoute, setCurrentRoute }) {
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const { user, isDarkMode, toggleTheme, logout, theme } = useApp();
+  const { user, theme } = useApp();
   
-  const drawerAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-  const overlayAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef(null);
   const [layoutWidth, setLayoutWidth] = useState(Dimensions.get('window').width > 480 ? 480 : Dimensions.get('window').width);
   const isProgrammaticScroll = useRef(false);
-
-  useEffect(() => {
-    if (isDrawerOpen) {
-      Animated.parallel([
-        Animated.timing(drawerAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(drawerAnim, {
-          toValue: -DRAWER_WIDTH,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(overlayAnim, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        })
-      ]).start();
-    }
-  }, [isDrawerOpen]);
 
   const tabs = [
     { id: 'Discover', label: 'Discover', icon: 'compass' },
@@ -86,11 +52,6 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    setIsDrawerOpen(false);
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* Main Content */}
@@ -116,7 +77,7 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
               style={{ width: layoutWidth, flex: 1 }} 
               key={tab.id}
             >
-              {screens[tab.id] ? React.cloneElement(screens[tab.id], { openDrawer: () => setIsDrawerOpen(true) }) : null}
+              {screens[tab.id] ? React.cloneElement(screens[tab.id]) : null}
             </View>
           ))}
         </ScrollView>
@@ -146,54 +107,6 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
           );
         })}
       </View>
-
-      {/* Drawer Overlay */}
-      <Animated.View 
-        style={[
-          styles.overlay, 
-          { 
-            opacity: overlayAnim,
-            pointerEvents: isDrawerOpen ? 'auto' : 'none'
-          }
-        ]}
-      >
-        <TouchableOpacity 
-          style={{ flex: 1 }} 
-          activeOpacity={1} 
-          onPress={() => setIsDrawerOpen(false)} 
-        />
-      </Animated.View>
-
-      {/* Drawer */}
-      <Animated.View 
-        style={[
-          styles.drawer, 
-          { 
-            backgroundColor: theme.surface, 
-            borderColor: theme.border,
-            transform: [{ translateX: drawerAnim }]
-          }
-        ]}
-      >
-        <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
-          <Text style={[styles.drawerTitle, { color: theme.text }]}>Menu</Text>
-          <TouchableOpacity onPress={() => setIsDrawerOpen(false)} style={styles.closeBtn}>
-            <Feather name="x" size={24} color={theme.textMuted} />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.drawerItem} onPress={toggleTheme}>
-          <Feather name={isDarkMode ? 'sun' : 'moon'} size={20} color={theme.text} />
-          <Text style={[styles.drawerItemText, { color: theme.text }]}>
-            {isDarkMode ? 'Light Mode' : 'Dark Mode'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.drawerItem, { marginTop: 'auto', marginBottom: 20 }]} onPress={handleLogout}>
-          <Feather name="log-out" size={20} color={theme.danger} />
-          <Text style={[styles.drawerItemText, { color: theme.danger }]}>Logout</Text>
-        </TouchableOpacity>
-      </Animated.View>
     </View>
   );
 }
@@ -218,16 +131,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4
   },
-  tabLabel: { fontSize: 10, letterSpacing: 0.5 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 10 },
-  drawer: { 
-    position: 'absolute', top: 0, bottom: 0, left: 0, 
-    width: DRAWER_WIDTH, zIndex: 20, padding: 20,
-    borderRightWidth: 1,
-  },
-  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 16, borderBottomWidth: 1, marginBottom: 20 },
-  drawerTitle: { fontSize: 20, fontWeight: '900' },
-  closeBtn: { padding: 4 },
-  drawerItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16 },
-  drawerItemText: { fontSize: 16, marginLeft: 16, fontWeight: '700' }
+  tabLabel: { fontSize: 10, letterSpacing: 0.5 }
 });

@@ -18,6 +18,7 @@ export function AppProvider({ children }) {
   const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode as requested
   const [currentRoute, setCurrentRoute] = useState('Discover');
   const [currentDetail, setCurrentDetail] = useState(null);
+  const [foldingOrigami, setFoldingOrigami] = useState(null);
   
   // Adicionando um estado para saber se o Firebase já checou o login
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -93,17 +94,48 @@ export function AppProvider({ children }) {
     }
   };
 
-  const register = async (email, password, username, avatarIcon, nivel) => {
+  const register = async (email, password, username, avatarIcon, nivel, avatarImageUri = null) => {
     try {
       // 1. Cria a conta no Authentication
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
+      let finalAvatarIcon = avatarIcon;
+
+      if (avatarImageUri) {
+        // Upload to Cloudinary
+        const data = new FormData();
+        data.append('file', {
+          uri: avatarImageUri,
+          type: 'image/jpeg',
+          name: 'avatar.jpg',
+        });
+        data.append('upload_preset', 'origamiapp');
+        data.append('cloud_name', 'drvuzmqqg');
+
+        const response = await fetch('https://api.cloudinary.com/v1_1/drvuzmqqg/image/upload', {
+          method: 'POST',
+          body: data,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'multipart/form-data',
+          }
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          finalAvatarIcon = result.secure_url;
+        } else {
+          console.error('Erro ao fazer upload da imagem no cadastro:', result.error?.message);
+        }
+      }
+
       // 2. Salva os dados extras no Firestore
       await setDoc(doc(db, 'users', firebaseUser.uid), {
         username: username,
         email: email,
-        avatarIcon: avatarIcon,
+        avatarIcon: finalAvatarIcon,
         nivel: nivel,
         isPro: false,
         isTeacher: false,
@@ -219,6 +251,7 @@ export function AppProvider({ children }) {
       user, login, register, logout, isAuthReady, resetPassword, updateAvatar, removeAvatar,
       isDarkMode, toggleTheme, theme,
       currentDetail, setCurrentDetail,
+      foldingOrigami, setFoldingOrigami,
       currentRoute, setCurrentRoute,
       savedOrigamis, saveOrigami,
       projects, documents, activities,

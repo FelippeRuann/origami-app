@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 
-export default function TeacherPro({ openDrawer }) {
+export default function TeacherPro() {
   const { theme } = useApp();
 
   const [students] = useState([
@@ -16,11 +16,7 @@ export default function TeacherPro({ openDrawer }) {
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
       {/* Top bar */}
       <View style={[styles.topBar, { backgroundColor: theme.bg }]}>
-        <TouchableOpacity onPress={openDrawer}>
-          <Feather name="menu" size={24} color={theme.primary} />
-        </TouchableOpacity>
         <Text style={[styles.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
-        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

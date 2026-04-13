@@ -41,7 +41,7 @@ const PROJETOS = {
 };
 
 export default function DetailScreen() {
-  const { currentDetail, setCurrentDetail, theme, saveOrigami, savedOrigamis, setCurrentRoute } = useApp();
+  const { currentDetail, setCurrentDetail, theme, saveOrigami, savedOrigamis, setCurrentRoute, setFoldingOrigami } = useApp();
   const projeto = PROJETOS[currentDetail] || PROJETOS['1'];
   
   const isSaved = savedOrigamis.some(o => o.id === currentDetail);
@@ -51,8 +51,7 @@ export default function DetailScreen() {
   };
 
   const handleStartFolding = () => {
-    setCurrentDetail(null);
-    setCurrentRoute('Library');
+    setFoldingOrigami(currentDetail);
   };
 
   return (

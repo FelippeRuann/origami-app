@@ -72,7 +72,7 @@ function RecommendedCard({ item, theme, setCurrentDetail }) {
   );
 }
 
-export default function Discover({ openDrawer }) {
+export default function Discover() {
   const [email, setEmail] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -91,11 +91,7 @@ export default function Discover({ openDrawer }) {
     <View style={[s.root, { backgroundColor: theme.bg }]}>
       {/* Top bar */}
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
-        <TouchableOpacity onPress={openDrawer}>
-          <Feather name="menu" size={24} color={theme.primary} />
-        </TouchableOpacity>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
-        <View style={{ width: 24 }} />
       </View>
 
       <View style={s.searchContainer}>

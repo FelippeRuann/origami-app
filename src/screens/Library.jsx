@@ -23,7 +23,7 @@ const INITIAL_FILES = [
   { id: '2', title: 'Advanced_Dragons.pdf', size: '5.1 MB' },
 ];
 
-export default function Library({ openDrawer }) {
+export default function Library() {
   const [tab, setTab] = useState('Projects'); // 'Projects' | 'Saved' | 'Files'
   const [files, setFiles] = useState(INITIAL_FILES);
   const { theme, setCurrentDetail } = useApp();
@@ -53,11 +53,7 @@ export default function Library({ openDrawer }) {
     <View style={[s.root, { backgroundColor: theme.bg }]}>
       {/* Top bar */}
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
-        <TouchableOpacity onPress={openDrawer}>
-          <Feather name="menu" size={24} color={theme.primary} />
-        </TouchableOpacity>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
-        <View style={{ width: 24 }} />
       </View>
 
       <View style={s.header}>
