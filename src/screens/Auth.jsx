@@ -6,6 +6,9 @@ import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
 
+/**
+ * Componente ForcaSenha: Mostra uma barrinha visual indicando se a senha é fraca, média ou forte.
+ */
 function ForcaSenha({ forca = 2, theme }) {
   const cores = [theme.danger, theme.warning, theme.primary];
   const labels = ['Fraca', 'Média', 'Forte'];
@@ -24,25 +27,40 @@ function ForcaSenha({ forca = 2, theme }) {
   );
 }
 
+/**
+ * Auth: Tela responsável por toda a parte de autenticação (Login, Cadastro e Tela Inicial Pública).
+ */
 export default function Auth() {
-  const [step, setStep] = useState('initial'); // 'initial', 'login', 'register'
+  // --- ESTADOS DA TELA ---
+  // Controla qual "página" de autenticação estamos vendo: 'initial' (boas vindas), 'login' ou 'register'
+  const [step, setStep] = useState('initial'); 
+  
+  // Dados do formulário de cadastro
   const [nivel, setNivel] = useState('Iniciante');
   const [aceitaTermos, setAceitaTermos] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [avatarIcon, setAvatarIcon] = useState('star');
-  const [avatarImageUri, setAvatarImageUri] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [avatarIcon, setAvatarIcon] = useState('star'); // Ícone padrão se não escolher foto
+  const [avatarImageUri, setAvatarImageUri] = useState(null); // Foto da galeria
+  
+  // Estados de controle de interface
+  const [loading, setLoading] = useState(false); // Mostra "Carregando..." nos botões
+  const [showPassword, setShowPassword] = useState(false); // Alterna a visibilidade da senha (olhinho)
+  
+  // Puxando funções do nosso contexto global
   const { login, register, theme, resetPassword } = useApp();
 
+  // Função simples para calcular a força da senha
   const calcularForcaSenha = (senha) => {
     if (!senha || senha.length < 6) return 0; // Fraca
     if (senha.length >= 8 && /[A-Z]/.test(senha) && /[0-9]/.test(senha)) return 2; // Forte
     return 1; // Média
   };
 
+  // --- FUNÇÕES DE AÇÃO ---
+
+  // Chamada quando o usuário clica em "Entrar"
   const handleLogin = async () => {
     if (!email || !password) return;
     setLoading(true);
@@ -57,7 +75,9 @@ export default function Auth() {
     }
   };
 
+  // Chamada quando o usuário clica em "Criar minha conta"
   const handleRegister = async () => {
+    // Validações antes de enviar para o Firebase
     if (!aceitaTermos) {
       Alert.alert("Atenção", "Você precisa aceitar os Termos de Uso para criar uma conta.");
       return;
@@ -74,8 +94,11 @@ export default function Auth() {
     }
 
     setLoading(true);
+    // Chama a função register do AppContext
     const result = await register(email, password, username, avatarIcon, nivel, avatarImageUri);
     setLoading(false);
+    
+    // Tratamento de erros amigável para o usuário
     if (!result.success) {
       let mensagem = "Erro ao criar conta.";
       if (result.error.includes('invalid-email')) mensagem = "E-mail inválido. Verifique se você digitou corretamente (ex: nome@email.com).";
@@ -85,6 +108,7 @@ export default function Auth() {
     }
   };
 
+  // Chamada quando clica em "Esqueci minha senha"
   const handleForgotPassword = async () => {
     if (!email) {
       Alert.alert("Atenção", "Por favor, digite seu e-mail no campo acima para redefinir a senha.");
@@ -98,9 +122,13 @@ export default function Auth() {
     }
   };
 
+  // --- RENDERIZAÇÃO DAS TELAS ---
+
+  // 1. TELA INICIAL (Boas-vindas)
   if (step === 'initial') {
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        {/* Elementos decorativos de fundo */}
         <View style={[styles.circuloGrande, { backgroundColor: theme.secondary }]} />
         <View style={[styles.circuloPequeno, { backgroundColor: theme.card }]} />
         <View style={[styles.circuloMeio, { borderColor: theme.primary }]} />
@@ -120,6 +148,7 @@ export default function Auth() {
         </View>
 
         <View style={styles.base}>
+          {/* Botões que mudam o estado 'step' para mostrar a tela certa */}
           <TouchableOpacity style={[styles.btnPrimario, { backgroundColor: theme.primary, shadowColor: theme.primary }]} onPress={() => setStep('login')}>
             <Text style={[styles.btnPrimarioText, { color: theme.bg }]}>Começar agora</Text>
           </TouchableOpacity> 
@@ -139,8 +168,10 @@ export default function Auth() {
     );
   }
 
+  // 2. TELA DE LOGIN
   if (step === 'login') {
     return (
+      // KeyboardAvoidingView empurra a tela pra cima quando o teclado abre
       <KeyboardAvoidingView style={[styles.container, { backgroundColor: theme.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={[styles.bgTop, { backgroundColor: theme.secondary }]} />
 
@@ -233,6 +264,7 @@ export default function Auth() {
     );
   }
 
+  // 3. TELA DE CADASTRO (Se não for 'initial' nem 'login', cai aqui)
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
       <View style={[styles.bgCircle1, { backgroundColor: theme.card }]} />
@@ -246,15 +278,18 @@ export default function Auth() {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Seção de escolha de Foto de Perfil */}
       <View style={styles.avatarSection}>
         <TouchableOpacity 
           style={[styles.avatarGrande, { backgroundColor: theme.secondary, borderColor: theme.primary, shadowColor: theme.primary }]}
           onPress={async () => {
+            // Pede permissão para acessar a galeria de fotos
             const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (permissionResult.granted === false) {
               Alert.alert("Atenção", "Precisamos da sua permissão para acessar a galeria!");
               return;
             }
+            // Abre a galeria para o usuário escolher a foto
             const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               allowsEditing: true,
@@ -262,7 +297,7 @@ export default function Auth() {
               quality: 0.5,
             });
             if (!result.canceled) {
-              setAvatarImageUri(result.assets[0].uri);
+              setAvatarImageUri(result.assets[0].uri); // Salva a foto escolhida no estado
             }
           }}
         >

@@ -1,8 +1,13 @@
+// Importações principais do React e React Native
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StyleSheet, View, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
+
+// Importação do Contexto Global (onde ficam os dados do usuário e funções do Firebase)
 import { AppProvider, useApp } from './src/context/AppContext';
+
+// Importação de todas as telas do aplicativo
 import Auth from './src/screens/Auth';
 import Discover from './src/screens/Discover';
 import Library from './src/screens/Library';
@@ -12,19 +17,27 @@ import DetailScreen from './src/screens/DetailScreen';
 import FoldingScreen from './src/screens/FoldingScreen';
 import Layout from './src/components/Layout';
 
+/**
+ * MainNavigator: Componente responsável por decidir qual tela mostrar.
+ * Ele escuta o estado global (useApp) e renderiza a tela correta.
+ */
 function MainNavigator() {
+  // Pegando os estados globais do AppContext
   const { user, isDarkMode, theme, currentDetail, foldingOrigami, currentRoute, setCurrentRoute, isAuthReady } = useApp();
 
+  // Função que decide o que renderizar na tela
   const renderContent = () => {
-    // Se o Firebase ainda não terminou de checar se tem alguém logado, mostra uma tela vazia
+    // 1. Se o Firebase ainda não terminou de checar se tem alguém logado, mostra uma tela vazia (Loading)
     if (!isAuthReady) {
       return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
     }
 
+    // 2. Se não tem usuário logado, mostra a tela de Login/Cadastro (Auth)
     if (!user) {
       return <Auth />;
     }
 
+    // 3. Se o usuário clicou em "Start Folding", mostra a tela de dobradura (passo a passo)
     if (foldingOrigami) {
       return (
         <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -33,6 +46,7 @@ function MainNavigator() {
       );
     }
 
+    // 4. Se o usuário clicou em um origami para ver os detalhes, mostra a tela de Detalhes
     if (currentDetail) {
       return (
         <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -41,6 +55,7 @@ function MainNavigator() {
       );
     }
 
+    // 5. Se nenhuma das opções acima for verdadeira, mostra as telas principais com a barra de navegação (Layout)
     const screens = {
       Discover: <Discover />,
       Library: <Library />,
@@ -63,8 +78,15 @@ function MainNavigator() {
   );
 }
 
+/**
+ * App: Componente raiz do aplicativo.
+ * Ele envolve tudo com o AppProvider (para o estado global funcionar)
+ * e faz configurações iniciais (como esconder a barra do Android).
+ */
 export default function App() {
+  // useEffect roda uma vez quando o app inicia
   useEffect(() => {
+    // Esconde a barra de navegação padrão do Android para deixar o app em tela cheia (imersivo)
     if (Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync("hidden");
       NavigationBar.setBehaviorAsync("overlay-swipe");
@@ -72,6 +94,7 @@ export default function App() {
   }, []);
 
   return (
+    // AppProvider permite que qualquer tela acesse os dados do usuário e o tema
     <AppProvider>
       <MainNavigator />
     </AppProvider>

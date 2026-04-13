@@ -11,18 +11,26 @@ import {
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+// 1. Criação do Contexto: É como se fosse um "armazém" global onde guardamos dados
+// que precisam ser acessados por várias telas (ex: quem é o usuário, qual o tema atual).
 const AppContext = createContext();
 
+/**
+ * AppProvider: É o componente que "abraça" o aplicativo e fornece os dados do contexto.
+ * Tudo que estiver dentro de <AppProvider> (no App.js) terá acesso a esses dados.
+ */
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode as requested
-  const [currentRoute, setCurrentRoute] = useState('Discover');
-  const [currentDetail, setCurrentDetail] = useState(null);
-  const [foldingOrigami, setFoldingOrigami] = useState(null);
+  // --- ESTADOS GLOBAIS ---
+  const [user, setUser] = useState(null); // Guarda os dados do usuário logado
+  const [isDarkMode, setIsDarkMode] = useState(true); // Controla o tema (Claro/Escuro)
+  const [currentRoute, setCurrentRoute] = useState('Discover'); // Controla qual aba está ativa na TabBar
+  const [currentDetail, setCurrentDetail] = useState(null); // Guarda o origami que está sendo visualizado na tela de Detalhes
+  const [foldingOrigami, setFoldingOrigami] = useState(null); // Guarda o origami que está sendo dobrado (passo a passo)
   
-  // Adicionando um estado para saber se o Firebase já checou o login
+  // Estado para saber se o Firebase já terminou de verificar se o usuário está logado
   const [isAuthReady, setIsAuthReady] = useState(false);
   
+  // Define as cores com base no modo escuro ou claro
   const theme = isDarkMode ? darkTheme : lightTheme;
 
   // App state
@@ -39,16 +47,19 @@ export function AppProvider({ children }) {
     { id: 'a1', title: 'Atividade 1: Tsuru', assignedBy: 'Prof. Silva', completed: false }
   ]);
 
-  // Efeito para escutar se o usuário está logado ou não
+  // --- EFEITOS (useEffect) ---
+  // Este efeito roda assim que o aplicativo abre. Ele fica "escutando" o Firebase
+  // para saber se o usuário fez login ou logout.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Se o Firebase diz que tem alguém logado, buscamos os dados extras dele no banco de dados (Firestore)
         try {
-          // Busca os dados adicionais do usuário no Firestore
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
+            // Atualiza o estado 'user' com os dados do Firebase + Firestore
             setUser({
               id: firebaseUser.uid,
               name: userData.username || firebaseUser.email.split('@')[0],
@@ -60,7 +71,7 @@ export function AppProvider({ children }) {
               folds: userData.folds || 0
             });
           } else {
-            // Fallback caso o documento não exista
+            // Fallback caso o documento não exista no banco
             setUser({
               id: firebaseUser.uid,
               name: firebaseUser.email.split('@')[0],
@@ -76,14 +87,20 @@ export function AppProvider({ children }) {
           console.error("Erro ao buscar dados do usuário:", error);
         }
       } else {
+        // Se não tem ninguém logado, limpa o estado
         setUser(null);
       }
+      // Avisa o app que já terminamos de checar o login (remove a tela de loading)
       setIsAuthReady(true);
     });
 
+    // Função de limpeza: para de escutar o Firebase quando o componente for desmontado
     return () => unsubscribe();
   }, []);
 
+  // --- FUNÇÕES DE AUTENTICAÇÃO ---
+  
+  // Função para fazer login com email e senha
   const login = async (email, password) => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
@@ -94,16 +111,17 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Função para criar uma nova conta
   const register = async (email, password, username, avatarIcon, nivel, avatarImageUri = null) => {
     try {
-      // 1. Cria a conta no Authentication
+      // 1. Cria a conta no Firebase Authentication (que gerencia e-mail e senha)
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
       let finalAvatarIcon = avatarIcon;
 
+      // Se o usuário escolheu uma foto da galeria, fazemos o upload para o Cloudinary (servidor de imagens)
       if (avatarImageUri) {
-        // Upload to Cloudinary
         const data = new FormData();
         data.append('file', {
           uri: avatarImageUri,
@@ -125,13 +143,13 @@ export function AppProvider({ children }) {
         const result = await response.json();
 
         if (response.ok) {
-          finalAvatarIcon = result.secure_url;
+          finalAvatarIcon = result.secure_url; // Pega o link da imagem salva na nuvem
         } else {
           console.error('Erro ao fazer upload da imagem no cadastro:', result.error?.message);
         }
       }
 
-      // 2. Salva os dados extras no Firestore
+      // 2. Salva os dados extras (nome, nível, foto) no Firestore (banco de dados)
       await setDoc(doc(db, 'users', firebaseUser.uid), {
         username: username,
         email: email,
@@ -150,6 +168,7 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Função para sair da conta
   const logout = async () => {
     try {
       await signOut(auth);
@@ -158,6 +177,7 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Função para enviar e-mail de recuperação de senha
   const resetPassword = async (email) => {
     try {
       await sendPasswordResetEmail(auth, email);
@@ -229,23 +249,31 @@ export function AppProvider({ children }) {
     }
   };
 
+  // --- FUNÇÕES DE PERFIL E APP ---
+
+  // Função para alternar entre modo claro e escuro
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
+  // Função para salvar um origami na biblioteca do usuário
   const saveOrigami = (origami) => {
+    // Regra de negócio: Usuários gratuitos só podem salvar 7 origamis
     if (!user?.isPro && savedOrigamis.length >= 7) {
       alert("Limite atingido! Assine o Pro para salvar mais origamis.");
       return false;
     }
+    // Evita salvar duplicado
     if (!savedOrigamis.find(o => o.id === origami.id)) {
       setSavedOrigamis([...savedOrigamis, origami]);
     }
     return true;
   };
 
+  // Função para simular a compra do plano Pro
   const upgradeToPro = (asTeacher = false) => {
     setUser({ ...user, isPro: true, isTeacher: asTeacher });
   };
 
+  // Aqui nós "exportamos" todas as variáveis e funções para que o resto do app possa usar
   return (
     <AppContext.Provider value={{
       user, login, register, logout, isAuthReady, resetPassword, updateAvatar, removeAvatar,
@@ -262,4 +290,6 @@ export function AppProvider({ children }) {
   );
 }
 
+// Hook customizado: Em vez de importar o useContext e o AppContext toda vez,
+// as telas só precisam chamar `useApp()` para pegar os dados.
 export const useApp = () => useContext(AppContext);

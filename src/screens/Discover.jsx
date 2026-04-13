@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
 
+// Dados estáticos (mock) para as categorias de origami
 const CATEGORIES = [
   { id: '1', icon: 'github', label: 'Animals',     count: '124 Projects' },
   { id: '2', icon: 'sun', label: 'Flowers',     count: '88 Projects'  },
@@ -12,12 +13,16 @@ const CATEGORIES = [
   { id: '4', icon: 'zap', label: 'Quick Folds', count: '210 Projects' },
 ];
 
+// Dados estáticos (mock) para os origamis recomendados
 const RECOMMENDED = [
   { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#3B82F6', time: '15 min', steps: '25 steps', icon: 'github', bg: '#0E7490' },
   { id: '2', title: 'Classic Crane', difficulty: 'BEGINNER',     difficultyColor: '#22C55E', time: '8 min',  steps: '12 steps', icon: 'twitter', bg: '#BE123C' },
   { id: '3', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#F59E0B', time: '35 min', steps: '42 steps', icon: 'feather', bg: '#C2410C' },
 ];
 
+/**
+ * Componente HeroBanner: Aquele banner grande em destaque no topo da tela.
+ */
 function HeroBanner({ theme }) {
   return (
     <View style={[s.hero, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -43,8 +48,12 @@ function HeroBanner({ theme }) {
   );
 }
 
+/**
+ * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados.
+ * Recebe o item (dados do origami), o tema atual e a função para abrir os detalhes.
+ */
 function RecommendedCard({ item, theme, setCurrentDetail }) {
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(false); // Estado local para o botão de curtir (coração)
   return (
     <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <View style={[s.recImage, { backgroundColor: item.bg }]}>
@@ -72,28 +81,36 @@ function RecommendedCard({ item, theme, setCurrentDetail }) {
   );
 }
 
+/**
+ * Discover: A tela principal do aplicativo (o "Feed").
+ * Mostra a barra de busca, o banner, as categorias e as recomendações.
+ */
 export default function Discover() {
-  const [email, setEmail] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [email, setEmail] = useState(''); // Estado para o campo de newsletter
+  const [searchQuery, setSearchQuery] = useState(''); // Estado da barra de busca
+  const [isSearchFocused, setIsSearchFocused] = useState(false); // Efeito visual da barra de busca
+  
+  // Pega o tema e a função de navegação do contexto global
   const { theme, setCurrentDetail } = useApp();
 
+  // Filtra a lista de recomendados com base no que o usuário digitou na busca
   const filteredRecommended = RECOMMENDED.filter(item => 
     item.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // If searching "drag", we can dynamically add a dragon example to show it works
+  // Truque/Easter Egg: Se buscar por "drag" e não achar nada, mostra um dragão secreto
   const displayRecommended = searchQuery.toLowerCase().includes('drag') && filteredRecommended.length === 0
     ? [{ id: 'drag1', title: 'Ancient Dragon', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337' }]
     : filteredRecommended;
 
   return (
     <View style={[s.root, { backgroundColor: theme.bg }]}>
-      {/* Top bar */}
+      {/* Top bar (Cabeçalho com a Logo) */}
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
       </View>
 
+      {/* Barra de Busca */}
       <View style={s.searchContainer}>
         <View style={[
           s.searchBar, 
