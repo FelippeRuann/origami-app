@@ -1,16 +1,64 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 
 export default function TeacherPro() {
   const { theme } = useApp();
+  const [isUploading, setIsUploading] = useState(false);
 
   const [students] = useState([
     { id: 1, name: 'Ana Clara', folds: 5 },
     { id: 2, name: 'Pedro Santos', folds: 12 },
     { id: 3, name: 'Lucas Lima', folds: 3 },
   ]);
+
+  const handleUploadPDF = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      setIsUploading(true);
+      const file = result.assets[0];
+
+      // Preparar o arquivo para envio (FormData)
+      const formData = new FormData();
+      formData.append('pdf', {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || 'application/pdf',
+      });
+
+      // Enviar para o nosso novo Backend (Express na porta 3000)
+      const response = await fetch('/api/upload-pdf', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        Alert.alert('Sucesso!', 'PDF enviado para o servidor. ' + data.message);
+      } else {
+        Alert.alert('Erro', data.error || 'Falha ao enviar o PDF');
+      }
+    } catch (error) {
+      console.error('Erro no upload:', error);
+      Alert.alert('Erro', 'Ocorreu um problema ao tentar enviar o arquivo.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.bg }]}>
@@ -26,9 +74,15 @@ export default function TeacherPro() {
         </View>
 
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={[styles.actionBtnPrimary, { backgroundColor: theme.primary }]}>
-            <Feather name="plus" size={24} color={theme.bg} style={{ marginBottom: 8 }} />
-            <Text style={[styles.actionBtnPrimaryText, { color: theme.bg }]}>New Activity</Text>
+          <TouchableOpacity 
+            style={[styles.actionBtnPrimary, { backgroundColor: theme.primary, opacity: isUploading ? 0.7 : 1 }]}
+            onPress={handleUploadPDF}
+            disabled={isUploading}
+          >
+            <Feather name="upload-cloud" size={24} color={theme.bg} style={{ marginBottom: 8 }} />
+            <Text style={[styles.actionBtnPrimaryText, { color: theme.bg }]}>
+              {isUploading ? 'Enviando...' : 'Upload PDF'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionBtnSecondary, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Feather name="users" size={24} color={theme.text} style={{ marginBottom: 8 }} />

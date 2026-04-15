@@ -273,6 +273,11 @@ export function AppProvider({ children }) {
     setUser({ ...user, isPro: true, isTeacher: asTeacher });
   };
 
+  // Função para reverter a simulação do plano Pro
+  const downgradeFromPro = () => {
+    setUser({ ...user, isPro: false, isTeacher: false });
+  };
+
   // Aqui nós "exportamos" todas as variáveis e funções para que o resto do app possa usar
   return (
     <AppContext.Provider value={{
@@ -283,7 +288,7 @@ export function AppProvider({ children }) {
       currentRoute, setCurrentRoute,
       savedOrigamis, saveOrigami,
       projects, documents, activities,
-      upgradeToPro
+      upgradeToPro, downgradeFromPro
     }}>
       {children}
     </AppContext.Provider>

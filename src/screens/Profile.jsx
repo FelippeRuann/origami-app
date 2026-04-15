@@ -13,7 +13,7 @@ const ACHIEVEMENTS = [
 ];
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -192,6 +192,34 @@ export default function Profile() {
                   <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil (Foto)</Text>
                   <Feather name="edit-2" size={20} color={theme.textDim} />
                 </TouchableOpacity>
+                
+                {/* Botão temporário para simular conta Pro/Professor */}
+                {!user?.isPro ? (
+                  <TouchableOpacity 
+                    style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                    onPress={() => {
+                      upgradeToPro(true); // true = vira professor também
+                      handleCloseSettings();
+                      alert("Conta atualizada para Pro/Professor!");
+                    }}
+                  >
+                    <Text style={[s.linkText, { color: theme.primary }]}>Simular Conta Pro/Professor</Text>
+                    <Feather name="star" size={20} color={theme.primary} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity 
+                    style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                    onPress={() => {
+                      downgradeFromPro();
+                      handleCloseSettings();
+                      alert("Conta revertida para o plano Gratuito!");
+                    }}
+                  >
+                    <Text style={[s.linkText, { color: theme.danger }]}>Remover Conta Pro/Professor</Text>
+                    <Feather name="star" size={20} color={theme.danger} />
+                  </TouchableOpacity>
+                )}
+
                 {['Notificações', 'Assinatura Pro', 'Ajuda e Suporte'].map((link, i) => (
                   <TouchableOpacity key={link} style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
                     <Text style={[s.linkText, { color: theme.text }]}>{link}</Text>
