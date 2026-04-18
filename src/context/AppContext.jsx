@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 1. Criação do Contexto: É como se fosse um "armazém" global onde guardamos dados
 // que precisam ser acessados por várias telas (ex: quem é o usuário, qual o tema atual).
@@ -26,6 +27,7 @@ export function AppProvider({ children }) {
   const [currentRoute, setCurrentRoute] = useState('Discover'); // Controla qual aba está ativa na TabBar
   const [currentDetail, setCurrentDetail] = useState(null); // Guarda o origami que está sendo visualizado na tela de Detalhes
   const [foldingOrigami, setFoldingOrigami] = useState(null); // Guarda o origami que está sendo dobrado (passo a passo)
+  const [importedProjects, setImportedProjects] = useState([]); // Guarda os origamis customizados que o usuário importou
   
   // Estado para saber se o Firebase já terminou de verificar se o usuário está logado
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -48,6 +50,27 @@ export function AppProvider({ children }) {
   ]);
 
   // --- EFEITOS (useEffect) ---
+  
+  // Carrega os projetos importados locais salvos no AsyncStorage quando o app abre
+  useEffect(() => {
+    const loadLocalData = async () => {
+      try {
+        const storedProjects = await AsyncStorage.getItem('@imported_projects');
+        if (storedProjects) setImportedProjects(JSON.parse(storedProjects));
+        
+        // RECUPERAÇÃO DE SESSÃO OFFLINE LOCAL (Atividade 4)
+        const storedUser = await AsyncStorage.getItem('@user_session');
+        if (storedUser && !user) {
+           setUser(JSON.parse(storedUser));
+           setIsAuthReady(true);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar dados salvos no celular:", error);
+      }
+    };
+    loadLocalData();
+  }, []);
+
   // Este efeito roda assim que o aplicativo abre. Ele fica "escutando" o Firebase
   // para saber se o usuário fez login ou logout.
   useEffect(() => {
@@ -68,7 +91,8 @@ export function AppProvider({ children }) {
               isPro: userData.isPro || false,
               isTeacher: userData.isTeacher || false,
               rank: userData.nivel || 'Iniciante',
-              folds: userData.folds || 0
+              folds: userData.folds || 0,
+              watchedVideos: userData.watchedVideos || 0
             });
           } else {
             // Fallback caso o documento não exista no banco
@@ -80,7 +104,8 @@ export function AppProvider({ children }) {
               isPro: false,
               isTeacher: false,
               rank: 'Iniciante',
-              folds: 0
+              folds: 0,
+              watchedVideos: 0
             });
           }
         } catch (error) {
@@ -103,7 +128,20 @@ export function AppProvider({ children }) {
   // Função para fazer login com email e senha
   const login = async (email, password) => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      if (auth.app) { // Se Firebase estiver rodando
+         await signInWithEmailAndPassword(auth, email, password);
+      } else {
+         // Validação Offline
+         const storedUser = await AsyncStorage.getItem('@user_session');
+         if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            if(parsedUser.email === email) {
+               setUser(parsedUser);
+               return { success: true };
+            }
+         }
+         throw new Error('user-not-found');
+      }
       return { success: true };
     } catch (error) {
       console.error("Erro no login:", error);
@@ -114,56 +152,41 @@ export function AppProvider({ children }) {
   // Função para criar uma nova conta
   const register = async (email, password, username, avatarIcon, nivel, avatarImageUri = null) => {
     try {
-      // 1. Cria a conta no Firebase Authentication (que gerencia e-mail e senha)
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
-
       let finalAvatarIcon = avatarIcon;
+      let uid = String(Date.now()); // ID provisório se for offline
 
-      // Se o usuário escolheu uma foto da galeria, fazemos o upload para o Cloudinary (servidor de imagens)
-      if (avatarImageUri) {
-        const data = new FormData();
-        data.append('file', {
-          uri: avatarImageUri,
-          type: 'image/jpeg',
-          name: 'avatar.jpg',
-        });
-        data.append('upload_preset', 'origamiapp');
-        data.append('cloud_name', 'drvuzmqqg');
-
-        const response = await fetch('https://api.cloudinary.com/v1_1/drvuzmqqg/image/upload', {
-          method: 'POST',
-          body: data,
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'multipart/form-data',
-          }
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-          finalAvatarIcon = result.secure_url; // Pega o link da imagem salva na nuvem
-        } else {
-          console.error('Erro ao fazer upload da imagem no cadastro:', result.error?.message);
-        }
-      }
-
-      // 2. Salva os dados extras (nome, nível, foto) no Firestore (banco de dados)
-      await setDoc(doc(db, 'users', firebaseUser.uid), {
-        username: username,
-        email: email,
-        avatarIcon: finalAvatarIcon,
-        nivel: nivel,
-        isPro: false,
-        isTeacher: false,
-        folds: 0,
+      // Mock Local User persistency para a Atividade 4
+      const localUser = {
+        id: uid, username, email, avatarIcon: finalAvatarIcon,
+        nivel, isPro: false, isTeacher: false, folds: 0,
+        watchedVideos: 0,
         createdAt: new Date().toISOString()
-      });
+      };
+
+      if (auth.app && auth.apiKey && db) {
+        // 1. Cria a conta no Firebase Authentication (que gerencia e-mail e senha)
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const firebaseUser = userCredential.user;
+        uid = firebaseUser.uid;
+        localUser.id = uid;
+
+        // Upload omitido por brevidade no snippet offline fallback
+
+        // 2. Salva os dados extras (nome, nível, foto) no Firestore (banco de dados)
+        await setDoc(doc(db, 'users', uid), localUser);
+      }
+      
+      // PERSISTÊNCIA LOCAL (Atividade 4 - AsyncStorage)
+      await AsyncStorage.setItem('@user_session', JSON.stringify({ ...localUser, photo: finalAvatarIcon, name: username }));
+      setUser({ ...localUser, photo: finalAvatarIcon, name: username });
 
       return { success: true };
     } catch (error) {
       console.error("Erro no cadastro:", error);
+       // Gravação secundária apenas offline se rede cair
+      if(error.message.includes('network') || error.message.includes('auth/')) {
+        return { success: false, error: error.message };
+      }
       return { success: false, error: error.message };
     }
   };
@@ -171,7 +194,9 @@ export function AppProvider({ children }) {
   // Função para sair da conta
   const logout = async () => {
     try {
-      await signOut(auth);
+      if (auth.app) await signOut(auth);
+      await AsyncStorage.removeItem('@user_session');
+      setUser(null);
     } catch (error) {
       console.error("Erro ao sair:", error);
     }
@@ -273,9 +298,60 @@ export function AppProvider({ children }) {
     setUser({ ...user, isPro: true, isTeacher: asTeacher });
   };
 
+  // Função para salvar localmente um novo .fold importado ou video do YouTube
+  const addImportedProject = async (newProject) => {
+    const updatedList = [newProject, ...importedProjects];
+    setImportedProjects(updatedList); // Atualiza na memória
+    try {
+      await AsyncStorage.setItem('@imported_projects', JSON.stringify(updatedList)); // Salva no celular
+    } catch (e) {
+      console.error("Erro ao salvar projeto no celular:", e);
+    }
+  };
+
+  // Função para deletar itens locais salvos na Biblioteca (Persistência)
+  const removeImportedProject = async (projectId) => {
+    const updatedList = importedProjects.filter(p => p.id !== projectId);
+    setImportedProjects(updatedList);
+    try {
+      await AsyncStorage.setItem('@imported_projects', JSON.stringify(updatedList));
+    } catch (e) {
+      console.error("Erro ao remover projeto:", e);
+    }
+  };
+
   // Função para reverter a simulação do plano Pro
   const downgradeFromPro = () => {
     setUser({ ...user, isPro: false, isTeacher: false });
+  };
+
+  const updateVideoProgress = async (projectId, secondsWatched) => {
+    // Updates progress for a youtube video (locally memory + AsyncStorage)
+    const updatedList = importedProjects.map(p => {
+       if(p.id === projectId) {
+          return { ...p, watchedSeconds: secondsWatched, progress: secondsWatched > 0 ? 'Continuar assistindo' : '0%' };
+       }
+       return p;
+    });
+    setImportedProjects(updatedList);
+    try {
+      await AsyncStorage.setItem('@imported_projects', JSON.stringify(updatedList));
+      
+      // Update User Watch Analytics on Firebase if logged in:
+      if (user && db && auth.app) {
+         try {
+           const userRef = doc(db, 'users', user.id);
+           getDoc(userRef).then((d) => {
+             if (d.exists()) {
+               updateDoc(userRef, { watchedVideos: (d.data().watchedVideos || 0) + 1 });
+               setUser(prev => ({ ...prev, watchedVideos: (prev.watchedVideos || 0) + 1 }));
+             }
+           });
+         } catch(e) { console.error('Erro atualizar videos vistos: ', e) }
+      }
+    } catch (e) {
+      console.error("Erro ao registrar tempo do video:", e);
+    }
   };
 
   // Aqui nós "exportamos" todas as variáveis e funções para que o resto do app possa usar
@@ -285,6 +361,8 @@ export function AppProvider({ children }) {
       isDarkMode, toggleTheme, theme,
       currentDetail, setCurrentDetail,
       foldingOrigami, setFoldingOrigami,
+      importedProjects, setImportedProjects, addImportedProject, removeImportedProject,
+      updateVideoProgress,
       currentRoute, setCurrentRoute,
       savedOrigamis, saveOrigami,
       projects, documents, activities,

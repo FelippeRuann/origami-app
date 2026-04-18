@@ -13,7 +13,7 @@ const ACHIEVEMENTS = [
 ];
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -113,12 +113,12 @@ export default function Profile() {
           
           <View style={s.statsContainer}>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.statNum, { color: theme.primary }]}>42</Text>
-              <Text style={[s.statLabel, { color: theme.textDim }]}>Folded</Text>
+              <Text style={[s.statNum, { color: theme.primary }]}>{user?.watchedVideos || Object.keys(importedProjects || {}).length || 0}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Assistidos</Text>
             </View>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.statNum, { color: theme.primary }]}>12</Text>
-              <Text style={[s.statLabel, { color: theme.textDim }]}>Saved</Text>
+              <Text style={[s.statNum, { color: theme.primary }]}>{ACHIEVEMENTS.filter(a => a.unlocked).length}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Conquistas</Text>
             </View>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[s.statNum, { color: theme.primary }]}>14</Text>

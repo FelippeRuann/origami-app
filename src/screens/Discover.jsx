@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions, Image, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
+import { WebView } from 'react-native-webview';
 
 const { width } = Dimensions.get('window');
 
@@ -13,11 +14,11 @@ const CATEGORIES = [
   { id: '4', icon: 'zap', label: 'Quick Folds', count: '210 Projects' },
 ];
 
-// Dados estáticos (mock) para os origamis recomendados
+// IDs REAIS do YouTube de origami (ex: Jo Nakashima) para carregar as miniaturas de verdade
 const RECOMMENDED = [
-  { id: '1', title: 'Desert Fox',    difficulty: 'INTERMEDIATE', difficultyColor: '#3B82F6', time: '15 min', steps: '25 steps', icon: 'github', bg: '#0E7490' },
-  { id: '2', title: 'Classic Crane', difficulty: 'BEGINNER',     difficultyColor: '#22C55E', time: '8 min',  steps: '12 steps', icon: 'twitter', bg: '#BE123C' },
-  { id: '3', title: 'Elegant Swan',  difficulty: 'ADVANCED',     difficultyColor: '#F59E0B', time: '35 min', steps: '42 steps', icon: 'feather', bg: '#C2410C' },
+  { id: 'yt1', title: 'Como fazer Tsuru Tradicional', difficulty: 'INICIANTE', difficultyColor: '#22C55E', time: '5 min', views: '1.2M views', icon: 'youtube', bg: '#BE123C', youtubeId: 'KfnyopcfNWQ' },
+  { id: 'yt2', title: 'Rosa de Papel Realista',  difficulty: 'INTERMEDIÁRIO', difficultyColor: '#3B82F6', time: '18 min', views: '450K views', icon: 'youtube', bg: '#0E7490', youtubeId: 'wZEwAioa8s4' },
+  { id: 'yt3', title: 'Dragão Mítico (Passo a Passo)', difficulty: 'AVANÇADO', difficultyColor: '#F59E0B', time: '40 min', views: '2.1M views', icon: 'youtube', bg: '#C2410C', youtubeId: '0O7e_Q-gLss' },
 ];
 
 /**
@@ -29,53 +30,78 @@ function HeroBanner({ theme }) {
       <View style={[s.heroBlob1, { backgroundColor: theme.primary, opacity: 0.2 }]} />
       <View style={[s.heroBlob2, { backgroundColor: theme.secondary, opacity: 0.5 }]} />
       <View style={s.heroContent}>
-        <Text style={[s.heroTag, { color: theme.primary }]}>✦ FEATURED CURRICULUM</Text>
-        <Text style={[s.heroTitle, { color: theme.text }]}>The Zen of{'\n'}Folding:{'\n'}Advanced{'\n'}Techniques</Text>
+        <Text style={[s.heroTag, { color: theme.primary }]}>✦ NOVIDADE: INTEGRAÇÃO C/ YOUTUBE</Text>
+        <Text style={[s.heroTitle, { color: theme.text }]}>Explore{'\n'}Canais{'\n'}de Origami</Text>
         <Text style={[s.heroSub, { color: theme.textMuted }]}>
-          Discover the meditative art of precision folding with our latest curriculum
-          designed by world-renowned masters.
+          Aprenda o passo a passo com os maiores canais de origami do mundo, integrados diretamente ao seu feed.
         </Text>
         <TouchableOpacity style={[s.heroBtn, { backgroundColor: theme.primary }]} activeOpacity={0.85}>
-          <Text style={[s.heroBtnText, { color: theme.bg }]}>Start Folding →</Text>
+          <Text style={[s.heroBtnText, { color: theme.bg }]}>Assistir Agora →</Text>
         </TouchableOpacity>
       </View>
       <View style={s.heroShapes}>
-        <View style={[s.shape, s.shapeTeal]}   />
-        <View style={[s.shape, s.shapeGold]}   />
-        <View style={[s.shape, s.shapePurple]} />
+        <View style={[s.shape, s.shapeTeal, { backgroundColor: '#FF0000' }]}   >
+           <Feather name="play-circle" size={40} color="#fff" style={{margin: 10}}/>
+        </View>
       </View>
     </View>
   );
 }
 
 /**
- * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados.
- * Recebe o item (dados do origami), o tema atual e a função para abrir os detalhes.
+ * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados (YouTube).
  */
-function RecommendedCard({ item, theme, setCurrentDetail }) {
-  const [liked, setLiked] = useState(false); // Estado local para o botão de curtir (coração)
+function RecommendedCard({ item, theme, onPlay }) {
+  const [liked, setLiked] = useState(false);
+  const { addImportedProject } = useApp();
+
+  const handleSaveToLibrary = () => {
+    // Adiciona à biblioteca com as infos do Youtube
+    const newYoutubeItem = {
+      id: Date.now().toString(),
+      title: item.title,
+      url: `https://youtube.com/watch?v=${item.youtubeId}`,
+      videoId: item.youtubeId,
+      type: 'youtube',
+      progress: '0%',
+      date: 'Agora'
+    };
+    addImportedProject(newYoutubeItem);
+    Alert.alert('Salvo', 'Vídeo do YouTube adicionado à sua Biblioteca!');
+  };
+
   return (
-    <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <View style={[s.recImage, { backgroundColor: item.bg }]}>
-        <Feather name={item.icon} size={60} color="#fff" style={{ opacity: 0.8 }} />
+    <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border, width: '48%', marginBottom: 16 }]}>
+      <TouchableOpacity style={[s.recImage, { backgroundColor: item.bg, height: 120 }]} onPress={() => onPlay(item)} activeOpacity={0.8}>
+        <Image 
+           source={{ uri: `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` }}
+           style={[StyleSheet.absoluteFillObject, { opacity: 0.9 }]}
+           resizeMode="cover"
+        />
         <View style={[s.diffBadge, { borderColor: item.difficultyColor }]}>
           <Text style={[s.diffText, { color: item.difficultyColor }]}>{item.difficulty}</Text>
         </View>
         <TouchableOpacity style={s.likeBtn} onPress={() => setLiked(!liked)}>
-          <Feather name="heart" size={20} color={liked ? theme.danger : "#fff"} />
+          <Feather name="heart" size={16} color={liked ? theme.danger : "#fff"} />
         </TouchableOpacity>
-      </View>
-      <View style={s.recInfo}>
-        <Text style={[s.recTitle, { color: theme.text }]}>{item.title}</Text>
-        <View style={s.recMeta}>
-          <Feather name="clock" size={14} color={theme.textMuted} />
-          <Text style={[s.recMetaText, { color: theme.textMuted }]}> {item.time}  </Text>
-          <Feather name="list" size={14} color={theme.textMuted} />
-          <Text style={[s.recMetaText, { color: theme.textMuted }]}> {item.steps}</Text>
+        <Feather name="play-circle" size={32} color="#fff" style={{ position: 'absolute', opacity: 0.8 }} />
+      </TouchableOpacity>
+      <View style={[s.recInfo, { padding: 10 }]}>
+        <Text style={[s.recTitle, { color: theme.text, fontSize: 13, height: 36 }]} numberOfLines={2}>{item.title}</Text>
+        <View style={[s.recMeta, { marginBottom: 10 }]}>
+          <Feather name="clock" size={10} color={theme.textMuted} />
+          <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10 }]}> {item.time}  </Text>
+          <Feather name="eye" size={10} color={theme.textMuted} />
+          <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10 }]}> {item.views}</Text>
         </View>
-        <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.primary }]} activeOpacity={0.85} onPress={() => setCurrentDetail(item.id)}>
-          <Text style={[s.startBtnText, { color: theme.bg }]}>Start Folding</Text>
-        </TouchableOpacity>
+        <View style={{flexDirection: 'row', gap: 6}}>
+           <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.danger, flex: 1, paddingVertical: 8 }]} activeOpacity={0.85} onPress={() => onPlay(item)}>
+             <Text style={[s.startBtnText, { color: 'white', fontSize: 10 }]}>Assistir</Text>
+           </TouchableOpacity>
+           <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.bg, borderColor: theme.border, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 }]} activeOpacity={0.85} onPress={handleSaveToLibrary}>
+             <Feather name="plus" size={12} color={theme.text}/>
+           </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -90,6 +116,9 @@ export default function Discover() {
   const [searchQuery, setSearchQuery] = useState(''); // Estado da barra de busca
   const [isSearchFocused, setIsSearchFocused] = useState(false); // Efeito visual da barra de busca
   
+  // YouTube Player State
+  const [playingVideo, setPlayingVideo] = useState(null);
+
   // Pega o tema e a função de navegação do contexto global
   const { theme, setCurrentDetail } = useApp();
 
@@ -100,8 +129,50 @@ export default function Discover() {
 
   // Truque/Easter Egg: Se buscar por "drag" e não achar nada, mostra um dragão secreto
   const displayRecommended = searchQuery.toLowerCase().includes('drag') && filteredRecommended.length === 0
-    ? [{ id: 'drag1', title: 'Ancient Dragon', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337' }]
+    ? [{ id: 'drag1', title: 'Ancient Dragon', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337', youtubeId: '0O7e_Q-gLss' }]
     : filteredRecommended;
+
+  if (playingVideo) {
+    return (
+      <View style={[s.root, { backgroundColor: theme.bg, paddingTop: 40 }]}>
+         <TouchableOpacity 
+           style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
+           onPress={() => setPlayingVideo(null)}
+         >
+            <Feather name="arrow-left" size={24} color={theme.text} />
+            <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar ao Início</Text>
+         </TouchableOpacity>
+         <View style={{ width: '100%', height: 300 }}>
+            <WebView
+              style={{ flex: 1 }}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsFullscreenVideo={true}
+              source={{ uri: `https://www.youtube.com/embed/${playingVideo.youtubeId}?playsinline=1&origin=https://www.youtube.com` }}
+            />
+         </View>
+         <View style={{padding: 20}}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+              <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold', flex: 1}}>{playingVideo.title}</Text>
+              <View style={[s.diffBadge, { position: 'relative', top: 0, right: 0, borderColor: playingVideo.difficultyColor }]}>
+                 <Text style={[s.diffText, { color: playingVideo.difficultyColor }]}>{playingVideo.difficulty}</Text>
+              </View>
+            </View>
+            
+            <View style={[s.recMeta, { marginTop: 15 }]}>
+              <Feather name="clock" size={14} color={theme.textMuted} />
+              <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.time}  </Text>
+              <Feather name="eye" size={14} color={theme.textMuted} />
+              <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.views}</Text>
+            </View>
+            
+            <Text style={{color: theme.textDim, fontSize: 14, marginTop: 15, lineHeight: 22}}>
+               Você está assistindo diretamente pelo App! Para salvar seu progresso e continuar depois, adicione este vídeo à sua Biblioteca.
+            </Text>
+         </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[s.root, { backgroundColor: theme.bg }]}>
@@ -153,7 +224,7 @@ export default function Discover() {
         <View style={s.section}>
           <View style={s.sectionHeader}>
             <Text style={[s.sectionTitle, { color: theme.text }]}>
-              {searchQuery ? 'Search Results' : 'Recommended for you'}
+              {searchQuery ? 'Resultados da Busca' : 'Recomendados para você'}
             </Text>
             {!searchQuery && (
               <View style={s.arrowRow}>
@@ -167,9 +238,11 @@ export default function Discover() {
             )}
           </View>
           {displayRecommended.length > 0 ? (
-            displayRecommended.map((item) => <RecommendedCard key={item.id} item={item} theme={theme} setCurrentDetail={setCurrentDetail} />)
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              {displayRecommended.map((item) => <RecommendedCard key={item.id} item={item} theme={theme} onPlay={setPlayingVideo} />)}
+            </View>
           ) : (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>No models found for "{searchQuery}"</Text>
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>Nenhum modelo encontrado para "{searchQuery}"</Text>
           )}
         </View>
 

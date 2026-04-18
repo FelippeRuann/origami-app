@@ -28,7 +28,9 @@ export default function FoldingScreen() {
   const { foldingOrigami, setFoldingOrigami, theme } = useApp();
   const [currentStep, setCurrentStep] = useState(0);
 
-  const steps = ORIGAMI_STEPS[foldingOrigami] || ORIGAMI_STEPS['1'];
+  const steps = typeof foldingOrigami === 'object' && foldingOrigami.steps 
+    ? foldingOrigami.steps 
+    : (ORIGAMI_STEPS[foldingOrigami] || ORIGAMI_STEPS['1']);
   const step = steps[currentStep];
   const totalSteps = steps.length;
   const progress = ((currentStep + 1) / totalSteps) * 100;
@@ -68,17 +70,24 @@ export default function FoldingScreen() {
       {/* Content */}
       <View style={s.content}>
         <View style={[s.imageContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Image 
-            source={{ uri: step.image }} 
-            style={s.image} 
-            resizeMode="cover"
-            referrerPolicy="no-referrer"
-          />
+          {step.image ? (
+            <Image 
+              source={{ uri: step.image }} 
+              style={s.image} 
+              resizeMode="cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <View style={[s.image, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }]}>
+              <Feather name="image" size={48} color={theme.textMuted} />
+              <Text style={{ color: theme.textMuted, marginTop: 16 }}>Imagem não disponível</Text>
+            </View>
+          )}
         </View>
         
         <View style={[s.instructionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[s.instructionText, { color: theme.text }]}>
-            {step.text}
+            {step.instruction || step.text}
           </Text>
         </View>
       </View>
