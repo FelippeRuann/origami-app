@@ -2,8 +2,9 @@
   "expo": {
     "name": "Origami App",
     "slug": "origami-app",
+    "scheme": "origami-app",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -14,13 +15,10 @@
       },
       "navigationBar": {
         "visible": "sticky-immersive"
-      },
-      "package": "com.anonymous.origamiapp"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "dc73338d-fb1a-4e11-b3a2-ed150f7736c3"
       }
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

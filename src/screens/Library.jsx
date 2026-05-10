@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Alert, ActivityIndicator, Platform, TextInput, Image } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Alert, ActivityIndicator, Platform, TextInput, Image, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
-import { WebView } from 'react-native-webview';
+import YoutubePlayer from 'react-native-youtube-iframe';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const { width } = Dimensions.get('window');
 
@@ -11,25 +12,103 @@ const { width } = Dimensions.get('window');
 const API_URL = Platform.OS === 'web' ? '/api/upload-pdf' : 'http://localhost:3000/api/upload-pdf';
 
 export default function Library() {
-  const { theme, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress } = useApp();
+  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading } = useApp();
   const [isConverting, setIsConverting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   
+  // Mescla projetos importados com origamis salvos da comunidade em uma única lista
+  const allProjects = React.useMemo(() => {
+    // Se ainda estiver carregando, não processa
+    if (isInitialLoading) return [];
+    
+    // Normaliza os dados (Community / YouTube Favs)
+    const communityNorm = (savedOrigamis || []).map(o => {
+      let dateStr = 'Salvo';
+      if (o.addedAt) {
+        if (o.addedAt.seconds) dateStr = new Date(o.addedAt.seconds * 1000).toLocaleDateString();
+        else dateStr = new Date(o.addedAt).toLocaleDateString();
+      } else if (o.savedAt) {
+        dateStr = new Date(o.savedAt).toLocaleDateString();
+      }
+
+      return {
+        ...o,
+        id: o.id?.toString() || o.videoId || Math.random().toString(),
+        title: o.title || 'Vídeo sem título',
+        type: 'youtube',
+        videoId: o.videoId || o.youtubeId,
+        date: dateStr,
+        progress: o.progress || '0%'
+      };
+    });
+
+    const combined = [...importedProjects];
+    communityNorm.forEach(fav => {
+      const exists = combined.find(p => (p.videoId && p.videoId === fav.videoId) || p.id === fav.id);
+      if (!exists) combined.push(fav);
+    });
+
+    return combined;
+  }, [importedProjects, savedOrigamis, isInitialLoading]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    // O sync real é passivo no AppContext, mas aqui forçamos a interface a brilhar
+    setTimeout(() => setRefreshing(false), 1200);
+  }, []);
+
+  const [inviteCode, setInviteCode] = useState('');
+
   // States do Flow do YouTube (Cadastro Principal Atividade 4)
   const [showYoutubeForm, setShowYoutubeForm] = useState(false);
   const [ytUrl, setYtUrl] = useState('');
   const [ytTitle, setYtTitle] = useState('');
 
+  // States do Management Premium
+  const [newStudentEmail, setNewStudentEmail] = useState('');
+
   // Youtube Player Modal
-  const [playingVideo, setPlayingVideo] = useState(null); // holds the project object currently playing
+  const [playingVideo, setPlayingVideo] = useState(null);
+  const [windowDims, setWindowDims] = useState(Dimensions.get('window'));
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowDims(window);
+    });
+    return () => subscription?.remove();
+  }, []);
+
+  const isLandscape = windowDims.width > windowDims.height;
+
+  useEffect(() => {
+    setIsFullscreenVideo(!!playingVideo && isLandscape);
+  }, [playingVideo, isLandscape]);
 
   // Arquivos convertidos na sessão
   const [convertedFiles, setConvertedFiles] = useState([]);
 
   // Filtragem local
-  const filteredProjects = importedProjects.filter(p => 
+  const filteredProjects = allProjects.filter(p => 
     p.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    if (playingVideo) {
+      ScreenOrientation.unlockAsync();
+    } else {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    }
+  }, [playingVideo]);
+
+  if (isInitialLoading) {
+    return (
+      <View style={[s.root, { backgroundColor: theme.bg, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={{ color: theme.textMuted, marginTop: 12 }}>Carregando seus Origamis...</Text>
+      </View>
+    );
+  }
 
   const handleSaveYoutube = () => {
     if (!ytUrl || !ytTitle) {
@@ -161,29 +240,49 @@ export default function Library() {
 
   if (playingVideo) {
     return (
-      <View style={[s.root, { backgroundColor: theme.bg, paddingTop: 40 }]}>
-         <TouchableOpacity 
-           style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
-           onPress={() => setPlayingVideo(null)}
-         >
-            <Feather name="arrow-left" size={24} color={theme.text} />
-            <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar à Biblioteca</Text>
-         </TouchableOpacity>
-         <View style={{ width: '100%', height: 300 }}>
-            <WebView
-               style={{ flex: 1 }}
-               javaScriptEnabled={true}
-               domStorageEnabled={true}
-               allowsFullscreenVideo={true}
-               source={{ uri: `https://www.youtube.com/embed/${playingVideo.videoId}?playsinline=1&origin=https://www.youtube.com` }}
+      <View style={[s.root, { backgroundColor: theme.bg, paddingTop: isLandscape ? 0 : 40 }]}>
+         {!isLandscape && (
+           <TouchableOpacity 
+             style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
+             onPress={() => setPlayingVideo(null)}
+           >
+              <Feather name="arrow-left" size={24} color={theme.text} />
+              <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar à Biblioteca</Text>
+           </TouchableOpacity>
+         )}
+         <View style={{ width: isLandscape ? '100%' : windowDims.width, height: isLandscape ? '100%' : 300, backgroundColor: 'black' }}>
+            <YoutubePlayer
+              height={isLandscape ? windowDims.height : 300}
+              width={windowDims.width}
+              play={true}
+              videoId={playingVideo.videoId}
+              webViewProps={{
+                originWhitelist: ['*'],
+                allowsInlineMediaPlayback: true,
+              }}
+              onChangeState={(state) => {
+                if (state === 'ended') {
+                  updateVideoProgress(playingVideo.id, 100);
+                }
+              }}
             />
+            {isLandscape && (
+              <TouchableOpacity 
+                style={{ position: 'absolute', top: 20, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 20 }}
+                onPress={() => setPlayingVideo(null)}
+              >
+                <Feather name="arrow-left" size={24} color="white" />
+              </TouchableOpacity>
+            )}
          </View>
-         <View style={{padding: 20}}>
-            <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold'}}>{playingVideo.title}</Text>
-            <Text style={{color: theme.textDim, fontSize: 14, marginTop: 10}}>
-               O progresso é salvo no banco quando você assiste!
-            </Text>
-         </View>
+         {!isLandscape && (
+           <View style={{padding: 20}}>
+              <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold'}}>{playingVideo.title}</Text>
+              <Text style={{color: theme.textDim, fontSize: 14, marginTop: 10}}>
+                 O progresso é salvo no banco quando você assiste!
+              </Text>
+           </View>
+         )}
       </View>
     );
   }
@@ -218,8 +317,20 @@ export default function Library() {
         </View>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-        
+      <ScrollView 
+        style={s.scroll} 
+        contentContainerStyle={s.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }
+      >
+
         {/* BLOCO 1: YOUTUBE E IMPORTAÇÃO */}
         <View style={s.sectionHeader}>
           <Text style={[s.sectionTitle, { color: theme.text }]}>Meus Projetos</Text>
@@ -266,12 +377,22 @@ export default function Library() {
               <View key={p.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <TouchableOpacity 
                   style={{flexDirection: 'row', flex: 1, alignItems: 'center'}}
-                  onPress={() => {
+                  onPress={async () => {
                     if(p.type === 'youtube') {
                         setPlayingVideo(p);
+                    } else if (p.url && !p.data) {
+                        try {
+                           const res = await fetch(p.url);
+                           const remoteData = await res.json();
+                           setFoldingOrigami(remoteData);
+                        } catch(e) {
+                           alert('Falha ao baixar dados do origami.');
+                        }
+                    } else if (p.data) {
+                        setFoldingOrigami(p.data);
+                    } else {
+                        setFoldingOrigami(p.id);
                     }
-                    else if (p.data) setFoldingOrigami(p.data);
-                    else setFoldingOrigami(p.id);
                   }}
                 >
                   <View style={[s.fileIcon, { backgroundColor: p.type === 'youtube'? theme.danger : theme.bg, overflow: 'hidden' }]}>
@@ -294,7 +415,18 @@ export default function Library() {
                    onPress={() => {
                      Alert.alert('Excluir', 'Deseja remover este projeto?', [
                        { text: 'Cancelar', style: 'cancel' },
-                       { text: 'Remover', style: 'destructive', onPress: () => removeImportedProject(p.id) }
+                       { 
+                         text: 'Remover', 
+                         style: 'destructive', 
+                         onPress: () => {
+                           const isCommunity = savedOrigamis.some(o => o.id === p.id || o.videoId === p.videoId);
+                           if (isCommunity) {
+                             unsaveOrigami(p.id);
+                           } else {
+                             removeImportedProject(p.id);
+                           }
+                         }
+                       }
                      ])
                    }}>
                   <Feather name="trash-2" size={20} color={theme.danger} />
@@ -389,7 +521,7 @@ const s = StyleSheet.create({
     padding: 32, alignItems: 'center', justifyContent: 'center',
     marginBottom: 24,
   },
-  importText: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
+  importText: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 8, flexShrink: 1 },
   importSubtext: { fontSize: 12, textAlign: 'center', fontWeight: '600' },
 
   filesList: { gap: 12 },

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions, Image, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
-import { WebView } from 'react-native-webview';
+import YoutubePlayer from 'react-native-youtube-iframe';
+import { YouTubeService } from '../domain/services/YouTubeService';
+import { VideoDiscoveryUseCase } from '../domain/usecases/VideoDiscoveryUseCase';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const { width } = Dimensions.get('window');
 
@@ -14,12 +17,8 @@ const CATEGORIES = [
   { id: '4', icon: 'zap', label: 'Quick Folds', count: '210 Projects' },
 ];
 
-// IDs REAIS do YouTube de origami (ex: Jo Nakashima) para carregar as miniaturas de verdade
-const RECOMMENDED = [
-  { id: 'yt1', title: 'Como fazer Tsuru Tradicional', difficulty: 'INICIANTE', difficultyColor: '#22C55E', time: '5 min', views: '1.2M views', icon: 'youtube', bg: '#BE123C', youtubeId: 'KfnyopcfNWQ' },
-  { id: 'yt2', title: 'Rosa de Papel Realista',  difficulty: 'INTERMEDIÁRIO', difficultyColor: '#3B82F6', time: '18 min', views: '450K views', icon: 'youtube', bg: '#0E7490', youtubeId: 'wZEwAioa8s4' },
-  { id: 'yt3', title: 'Dragão Mítico (Passo a Passo)', difficulty: 'AVANÇADO', difficultyColor: '#F59E0B', time: '40 min', views: '2.1M views', icon: 'youtube', bg: '#C2410C', youtubeId: '0O7e_Q-gLss' },
-];
+// Deixamos vazio pois agora vem do Firestore
+const RECOMMENDED_IDS = [];
 
 /**
  * Componente HeroBanner: Aquele banner grande em destaque no topo da tela.
@@ -30,10 +29,10 @@ function HeroBanner({ theme }) {
       <View style={[s.heroBlob1, { backgroundColor: theme.primary, opacity: 0.2 }]} />
       <View style={[s.heroBlob2, { backgroundColor: theme.secondary, opacity: 0.5 }]} />
       <View style={s.heroContent}>
-        <Text style={[s.heroTag, { color: theme.primary }]}>✦ NOVIDADE: INTEGRAÇÃO C/ YOUTUBE</Text>
-        <Text style={[s.heroTitle, { color: theme.text }]}>Explore{'\n'}Canais{'\n'}de Origami</Text>
+        <Text style={[s.heroTag, { color: theme.primary }]}>✦ BANCO DE VÍDEOS IA-POWERED</Text>
+        <Text style={[s.heroTitle, { color: theme.text }]}>Curadoria{'\n'}Especializada{'\n'}via Gemini</Text>
         <Text style={[s.heroSub, { color: theme.textMuted }]}>
-          Aprenda o passo a passo com os maiores canais de origami do mundo, integrados diretamente ao seu feed.
+          Nossa IA analisa visualmente milhars de vídeos para trazer apenas tutoriais reais e de alta qualidade para você.
         </Text>
         <TouchableOpacity style={[s.heroBtn, { backgroundColor: theme.primary }]} activeOpacity={0.85}>
           <Text style={[s.heroBtnText, { color: theme.bg }]}>Assistir Agora →</Text>
@@ -74,7 +73,7 @@ function RecommendedCard({ item, theme, onPlay }) {
     <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border, width: '48%', marginBottom: 16 }]}>
       <TouchableOpacity style={[s.recImage, { backgroundColor: item.bg, height: 120 }]} onPress={() => onPlay(item)} activeOpacity={0.8}>
         <Image 
-           source={{ uri: `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` }}
+           source={{ uri: item.thumbnailUrl || `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` }}
            style={[StyleSheet.absoluteFillObject, { opacity: 0.9 }]}
            resizeMode="cover"
         />
@@ -118,58 +117,178 @@ export default function Discover() {
   
   // YouTube Player State
   const [playingVideo, setPlayingVideo] = useState(null);
+  const [windowDims, setWindowDims] = useState(Dimensions.get('window'));
+
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setWindowDims(window);
+    });
+    return () => subscription?.remove();
+  }, []);
+
+  const isLandscape = windowDims.width > windowDims.height;
+  
+  // Lista dinamica do banco de dados (paginada)
+  const [videos, setVideos] = useState([]);
+  const [isLoadingVideos, setIsLoadingVideos] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
+  const [allLoaded, setAllLoaded] = useState(false);
 
   // Pega o tema e a função de navegação do contexto global
-  const { theme, setCurrentDetail } = useApp();
+  const { theme, setCurrentDetail, setIsFullscreenVideo } = useApp();
+
+  useEffect(() => {
+    setIsFullscreenVideo(!!playingVideo && isLandscape);
+  }, [playingVideo, isLandscape]);
+
+  useEffect(() => {
+    async function fetchCommunityVideos() {
+      setIsLoadingVideos(true);
+      try {
+        const { videos: fetchedVideos, lastVisible } = await VideoDiscoveryUseCase.getCommunityVideos(10);
+        
+        const mappedResults = fetchedVideos.map(v => {
+          const d = v.difficulty?.toLowerCase() || 'easy';
+          let displayTime = v.duration || 'Tutorial';
+          if (displayTime.startsWith('PT')) {
+            displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
+          }
+          return {
+            ...v,
+            youtubeId: v.videoId,
+            time: displayTime,
+            difficulty: d.toUpperCase(),
+            difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
+            views: 'IA Verified',
+            bg: '#000'
+          };
+        });
+        
+        setVideos(mappedResults);
+        setLastVisibleDoc(lastVisible);
+        if (fetchedVideos.length < 10) setAllLoaded(true);
+        
+      } catch (err) {
+        console.error("Erro ao carregar vídeos da comunidade:", err);
+      } finally {
+        setIsLoadingVideos(false);
+      }
+    }
+    fetchCommunityVideos();
+  }, []);
+  
+  const loadMoreVideos = async () => {
+    if (isLoadingMore || allLoaded || !lastVisibleDoc || searchQuery) return;
+    
+    setIsLoadingMore(true);
+    try {
+      const { videos: fetchedVideos, lastVisible } = await VideoDiscoveryUseCase.getCommunityVideos(10, lastVisibleDoc);
+      
+      if (fetchedVideos.length === 0) {
+        setAllLoaded(true);
+      } else {
+        const mappedResults = fetchedVideos.map(v => {
+          const d = v.difficulty?.toLowerCase() || 'easy';
+          let displayTime = v.duration || 'Tutorial';
+          if (displayTime.startsWith('PT')) {
+            displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
+          }
+          return {
+            ...v,
+            youtubeId: v.videoId,
+            time: displayTime,
+            difficulty: d.toUpperCase(),
+            difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
+            views: 'IA Verified',
+            bg: '#000'
+          };
+        });
+        
+        setVideos(prev => [...prev, ...mappedResults]);
+        setLastVisibleDoc(lastVisible);
+        if (fetchedVideos.length < 10) setAllLoaded(true);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar mais vídeos:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    if (playingVideo) {
+      ScreenOrientation.unlockAsync();
+    } else {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    }
+  }, [playingVideo]);
 
   // Filtra a lista de recomendados com base no que o usuário digitou na busca
-  const filteredRecommended = RECOMMENDED.filter(item => 
-    item.title.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredRecommended = videos.filter(item => 
+    item.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Truque/Easter Egg: Se buscar por "drag" e não achar nada, mostra um dragão secreto
   const displayRecommended = searchQuery.toLowerCase().includes('drag') && filteredRecommended.length === 0
-    ? [{ id: 'drag1', title: 'Ancient Dragon', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337', youtubeId: '0O7e_Q-gLss' }]
+    ? [{ id: 'drag1', title: 'Ancient Dragon (API)', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337', youtubeId: 'kUsxMXwCW8A', views: 'API views' }]
     : filteredRecommended;
 
   if (playingVideo) {
     return (
-      <View style={[s.root, { backgroundColor: theme.bg, paddingTop: 40 }]}>
-         <TouchableOpacity 
-           style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
-           onPress={() => setPlayingVideo(null)}
-         >
-            <Feather name="arrow-left" size={24} color={theme.text} />
-            <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar ao Início</Text>
-         </TouchableOpacity>
-         <View style={{ width: '100%', height: 300 }}>
-            <WebView
-              style={{ flex: 1 }}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              allowsFullscreenVideo={true}
-              source={{ uri: `https://www.youtube.com/embed/${playingVideo.youtubeId}?playsinline=1&origin=https://www.youtube.com` }}
+      <View style={[s.root, { backgroundColor: theme.bg, paddingTop: isLandscape ? 0 : 40 }]}>
+         {!isLandscape && (
+           <TouchableOpacity 
+             style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
+             onPress={() => setPlayingVideo(null)}
+           >
+              <Feather name="arrow-left" size={24} color={theme.text} />
+              <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar ao Início</Text>
+           </TouchableOpacity>
+         )}
+         <View style={{ width: isLandscape ? '100%' : windowDims.width, height: isLandscape ? '100%' : 250, backgroundColor: 'black' }}>
+            <YoutubePlayer
+              height={isLandscape ? windowDims.height : 250}
+              width={windowDims.width}
+              play={true}
+              videoId={playingVideo.youtubeId}
+              webViewProps={{
+                originWhitelist: ['*'],
+                allowsInlineMediaPlayback: true,
+              }}
             />
+            {isLandscape && (
+              <TouchableOpacity 
+                style={{ position: 'absolute', top: 20, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 20 }}
+                onPress={() => setPlayingVideo(null)}
+              >
+                <Feather name="arrow-left" size={24} color="white" />
+              </TouchableOpacity>
+            )}
          </View>
-         <View style={{padding: 20}}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
-              <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold', flex: 1}}>{playingVideo.title}</Text>
-              <View style={[s.diffBadge, { position: 'relative', top: 0, right: 0, borderColor: playingVideo.difficultyColor }]}>
-                 <Text style={[s.diffText, { color: playingVideo.difficultyColor }]}>{playingVideo.difficulty}</Text>
+         {!isLandscape && (
+           <View style={{padding: 20}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold', flex: 1}}>{playingVideo.title}</Text>
+                <View style={[s.diffBadge, { position: 'relative', top: 0, right: 0, borderColor: playingVideo.difficultyColor }]}>
+                   <Text style={[s.diffText, { color: playingVideo.difficultyColor }]}>{playingVideo.difficulty}</Text>
+                </View>
               </View>
-            </View>
-            
-            <View style={[s.recMeta, { marginTop: 15 }]}>
-              <Feather name="clock" size={14} color={theme.textMuted} />
-              <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.time}  </Text>
-              <Feather name="eye" size={14} color={theme.textMuted} />
-              <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.views}</Text>
-            </View>
-            
-            <Text style={{color: theme.textDim, fontSize: 14, marginTop: 15, lineHeight: 22}}>
-               Você está assistindo diretamente pelo App! Para salvar seu progresso e continuar depois, adicione este vídeo à sua Biblioteca.
-            </Text>
-         </View>
+              
+              <View style={[s.recMeta, { marginTop: 15, flexWrap: 'wrap' }]}>
+                <Feather name="clock" size={14} color={theme.textMuted} />
+                <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.time}  </Text>
+                <Feather name="eye" size={14} color={theme.textMuted} />
+                <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 14 }]}> {playingVideo.views}</Text>
+                <Text style={[s.recMetaText, { color: theme.primary, fontSize: 14, marginLeft: 10, flexShrink: 1 }]} numberOfLines={1}> • {playingVideo.channel}</Text>
+              </View>
+              
+              <Text style={{color: theme.textDim, fontSize: 14, marginTop: 15, lineHeight: 22}}>
+                 Você está assistindo diretamente pelo App usando "react-native-youtube-iframe"!
+                 Informações puxadas direto da API do YouTube. Para salvar seu progresso e continuar depois, adicione este vídeo à sua Biblioteca.
+              </Text>
+           </View>
+         )}
       </View>
     );
   }
@@ -200,10 +319,22 @@ export default function Discover() {
         </View>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={s.scroll} 
+        contentContainerStyle={s.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        onScroll={({ nativeEvent }) => {
+          const isCloseToBottom = nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >= nativeEvent.contentSize.height - 50;
+          if (isCloseToBottom) {
+            loadMoreVideos();
+          }
+        }}
+        scrollEventThrottle={400}
+      >
         <HeroBanner theme={theme} />
 
-        {/* Categories */}
+        {/* Categories section hidden as requested */}
+        {/*
         <View style={s.section}>
           <View style={s.sectionHeader}>
             <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
@@ -219,53 +350,38 @@ export default function Discover() {
             ))}
           </View>
         </View>
+        */}
 
         {/* Recommended */}
         <View style={s.section}>
           <View style={s.sectionHeader}>
             <Text style={[s.sectionTitle, { color: theme.text }]}>
-              {searchQuery ? 'Resultados da Busca' : 'Recomendados para você'}
+              {searchQuery ? 'Resultados da Busca' : 'Descobrir Modelos'}
             </Text>
             {!searchQuery && (
               <View style={s.arrowRow}>
-                <TouchableOpacity style={[s.arrowBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <Feather name="chevron-left" size={20} color={theme.text} />
-                </TouchableOpacity>
-                <TouchableOpacity style={[s.arrowBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <Feather name="chevron-right" size={20} color={theme.text} />
-                </TouchableOpacity>
               </View>
             )}
           </View>
-          {displayRecommended.length > 0 ? (
+          {isLoadingVideos ? (
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>Buscando do YouTube (Clean Arch)...</Text>
+          ) : displayRecommended.length > 0 ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
               {displayRecommended.map((item) => <RecommendedCard key={item.id} item={item} theme={theme} onPlay={setPlayingVideo} />)}
             </View>
           ) : (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>Nenhum modelo encontrado para "{searchQuery}"</Text>
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>
+              {searchQuery 
+                ? `Nenhum modelo encontrado para "${searchQuery}"` 
+                : "Nenhum modelo para descobrir. Por favor, fique online para acessar os modelos."}
+            </Text>
+          )}
+          {isLoadingMore && (
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 10 }}>Carregando mais vídeos...</Text>
           )}
         </View>
 
-        {/* Newsletter */}
-        <View style={[s.newsletter, { backgroundColor: theme.secondary, borderColor: theme.border }]}>
-          <Text style={[s.nlTitle, { color: theme.text }]}>Join our community{'\n'}of folders</Text>
-          <Text style={[s.nlSub, { color: theme.textMuted }]}>
-            Receive weekly inspiration, exclusive paper textures, and community challenges directly in your inbox.
-          </Text>
-          <View style={s.nlRow}>
-            <TextInput
-              style={[s.nlInput, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }]}
-              placeholder="Your email address"
-              placeholderTextColor={theme.textDim}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-            />
-            <TouchableOpacity style={[s.nlBtn, { backgroundColor: theme.primary }]} activeOpacity={0.85}>
-              <Text style={[s.nlBtnText, { color: theme.bg }]}>Join{'\n'}Now</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+
       </ScrollView>
     </View>
   );
@@ -297,7 +413,7 @@ const s = StyleSheet.create({
   heroTitle:   { fontSize: 26, fontWeight: '900', lineHeight: 32, marginBottom: 10 },
   heroSub:     { fontSize: 13, lineHeight: 20, marginBottom: 18 },
   heroBtn:     { paddingVertical: 12, paddingHorizontal: 22, borderRadius: 10, alignSelf: 'flex-start' },
-  heroBtnText: { fontWeight: '800', fontSize: 14 },
+  heroBtnText: { fontWeight: '800', fontSize: 14, flexShrink: 1, textAlign: 'center' },
   heroShapes:  { position: 'absolute', right: 16, top: 16, gap: 8 },
   shape:       { width: 60, height: 60, borderRadius: 6, opacity: 0.85 },
   shapeTeal:   { backgroundColor: '#0D9488', transform: [{ rotate: '15deg' }] },
@@ -327,7 +443,7 @@ const s = StyleSheet.create({
   recMeta:      { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   recMetaText:  { fontSize: 13 },
   startBtn:     { borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
-  startBtnText: { fontWeight: '800', fontSize: 14 },
+  startBtnText: { fontWeight: '800', fontSize: 14, flexShrink: 1, textAlign: 'center' },
 
   newsletter: { margin: 16, marginTop: 24, borderRadius: 20, padding: 22, borderWidth: 1 },
   nlTitle:    { fontSize: 20, fontWeight: '900', marginBottom: 10 },

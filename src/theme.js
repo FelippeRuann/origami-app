@@ -23,7 +23,9 @@ export const darkTheme = {
   text: '#FFFFFF',
   textMuted: '#8B92B0',
   textDim: '#5A6080',
+  textSecondary: '#8B92B0', // Alias para compatibilidade
   card: '#22224A',
+  cardBg: '#22224A', // Alias para compatibilidade
   danger: '#FF4444',
   warning: '#FFAA00',
 };

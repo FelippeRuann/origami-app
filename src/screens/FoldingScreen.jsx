@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 
@@ -74,7 +74,7 @@ export default function FoldingScreen() {
             <Image 
               source={{ uri: step.image }} 
               style={s.image} 
-              resizeMode="cover"
+              resizeMode="contain"
               referrerPolicy="no-referrer"
             />
           ) : (
@@ -86,9 +86,11 @@ export default function FoldingScreen() {
         </View>
         
         <View style={[s.instructionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[s.instructionText, { color: theme.text }]}>
-            {step.instruction || step.text}
-          </Text>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={s.instructionScroll}>
+            <Text style={[s.instructionText, { color: theme.text }]}>
+              {step.instruction || step.text}
+            </Text>
+          </ScrollView>
         </View>
       </View>
 
@@ -142,14 +144,14 @@ const s = StyleSheet.create({
   progressBarBg: { width: '100%', height: 6, borderRadius: 3, overflow: 'hidden' },
   progressBarFill: { height: '100%', borderRadius: 3 },
   
-  content: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' },
+  content: { flex: 1, padding: 20 },
   imageContainer: { 
     width: '100%', 
-    aspectRatio: 1, 
+    flex: 1.2,
     borderRadius: 24, 
     overflow: 'hidden', 
     borderWidth: 1,
-    marginBottom: 24,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
@@ -160,9 +162,15 @@ const s = StyleSheet.create({
   
   instructionCard: {
     width: '100%',
-    padding: 24,
+    flex: 1,
     borderRadius: 20,
     borderWidth: 1,
+    overflow: 'hidden'
+  },
+  instructionScroll: {
+    padding: 24,
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   instructionText: {
     fontSize: 18,

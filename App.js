@@ -13,6 +13,7 @@ import Discover from './src/screens/Discover';
 import Library from './src/screens/Library';
 import Profile from './src/screens/Profile';
 import TeacherPro from './src/screens/TeacherPro';
+import AdminDiscovery from './src/screens/AdminDiscovery';
 import DetailScreen from './src/screens/DetailScreen';
 import FoldingScreen from './src/screens/FoldingScreen';
 import Layout from './src/components/Layout';
@@ -55,7 +56,16 @@ function MainNavigator() {
       );
     }
 
-    // 5. Se nenhuma das opções acima for verdadeira, mostra as telas principais com a barra de navegação (Layout)
+    // 5. Tela de Administração de Vídeos (Scan AI)
+    if (currentRoute === 'AdminDiscovery') {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.bg }}>
+          <AdminDiscovery onBack={() => setCurrentRoute('Profile')} />
+        </View>
+      );
+    }
+
+    // 6. Se nenhuma das opções acima for verdadeira, mostra as telas principais com a barra de navegação (Layout)
     const screens = {
       Discover: <Discover />,
       Library: <Library />,
@@ -89,7 +99,6 @@ export default function App() {
     // Esconde a barra de navegação padrão do Android para deixar o app em tela cheia (imersivo)
     if (Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync("hidden");
-      NavigationBar.setBehaviorAsync("overlay-swipe");
     }
   }, []);
 
@@ -102,16 +111,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' },
+  container: { flex: 1, backgroundColor: '#000' },
   appWrapper: {
-    width: '100%',
-    maxWidth: 480,
     flex: 1,
+    width: '100%',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
   }
 });

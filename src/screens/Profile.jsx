@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../context/AppContext';
@@ -13,10 +13,11 @@ const ACHIEVEMENTS = [
 ];
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, classActivities, joinClass, setCurrentRoute } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
   
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -50,15 +51,17 @@ export default function Profile() {
 
     // Abrir a galeria
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [1, 1], // Cortar em quadrado
-      quality: 0.5, // Comprimir a imagem para não ficar muito pesada
+      aspect: [1, 1],
+      quality: 0.5,
     });
 
     if (!result.canceled) {
       setUploadingAvatar(true);
-      const response = await updateAvatar(result.assets[0].uri);
+      // Envia o arquivo direto conforme solicitado (assets[0].file no Web)
+      const imageFile = result.assets[0].file || result.assets[0].uri;
+      const response = await updateAvatar(imageFile);
       setUploadingAvatar(false);
       
       if (!response.success) {
@@ -73,6 +76,14 @@ export default function Profile() {
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
         <View style={s.topBarActions}>
+          {(user?.email === 'admin@exemplo.com' || user?.email === 'admin@exemplo.com') && (
+            <TouchableOpacity 
+              style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginRight: 10 }]} 
+              onPress={() => setCurrentRoute('AdminDiscovery')}
+            >
+              <Feather name="database" size={20} color={theme.primary} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginRight: 10 }]} onPress={toggleTheme}>
             <Feather name={isDarkMode ? 'sun' : 'moon'} size={20} color={theme.text} />
           </TouchableOpacity>
@@ -144,6 +155,61 @@ export default function Profile() {
             ))}
           </View>
         </View>
+
+        {/* Community / Siga um Origamista */}
+        <View style={s.section}>
+          <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 8 }]}>Comunidade PRO</Text>
+          <Text style={[{ color: theme.textMuted, fontSize: 13, marginBottom: 16 }]}>
+            Siga um origamista para receber tutoriais exclusivos diretamente no app.
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+             <TextInput 
+               style={[s.inputObj, { flex: 1, backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
+               placeholder="Código do Origamista"
+               placeholderTextColor={theme.textDim}
+               value={inviteCode}
+               autoCapitalize="characters"
+               onChangeText={setInviteCode}
+             />
+             <TouchableOpacity 
+               style={{ backgroundColor: theme.primary, paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}
+               onPress={async () => {
+                 const res = await joinClass(inviteCode.toUpperCase());
+                 if (res.success) {
+                    alert('Você está seguindo a turma!');
+                    setInviteCode('');
+                 } else {
+                    alert('Erro: ' + res.error);
+                 }
+               }}
+             >
+               <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Seguir</Text>
+             </TouchableOpacity>
+          </View>
+
+          {classActivities.length > 0 && (
+            <View style={{ marginTop: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: theme.textDim, marginBottom: 10, textTransform: 'uppercase' }}>Atividades Recentes da Turma:</Text>
+              <View style={s.filesList}>
+                 {classActivities.map((act) => (
+                    <View key={act.id} style={[s.fileCard, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
+                       <View style={[s.fileIcon, { backgroundColor: theme.primary }]}>
+                         <Feather name={act.type === 'Video' ? 'youtube' : 'file-text'} size={20} color={theme.bg} />
+                       </View>
+                       <View style={s.fileInfo}>
+                         <Text style={[s.fileTitle, { color: theme.primary }]} numberOfLines={1}>{act.title}</Text>
+                         <Text style={[s.fileSize, { color: theme.text }]}>{act.teacherName} • {act.type}</Text>
+                       </View>
+                       <TouchableOpacity style={s.fileAction} onPress={() => alert('Disponível apenas na Biblioteca na v2.0!')}>
+                         <Feather name="external-link" size={20} color={theme.primary} />
+                       </TouchableOpacity>
+                    </View>
+                 ))}
+              </View>
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* Settings Modal */}
@@ -200,10 +266,10 @@ export default function Profile() {
                     onPress={() => {
                       upgradeToPro(true); // true = vira professor também
                       handleCloseSettings();
-                      alert("Conta atualizada para Pro/Professor!");
+                      alert("Conta atualizada para Pro/Origamista!");
                     }}
                   >
-                    <Text style={[s.linkText, { color: theme.primary }]}>Simular Conta Pro/Professor</Text>
+                    <Text style={[s.linkText, { color: theme.primary }]}>Simular Conta Pro/Origamista</Text>
                     <Feather name="star" size={20} color={theme.primary} />
                   </TouchableOpacity>
                 ) : (
@@ -215,7 +281,7 @@ export default function Profile() {
                       alert("Conta revertida para o plano Gratuito!");
                     }}
                   >
-                    <Text style={[s.linkText, { color: theme.danger }]}>Remover Conta Pro/Professor</Text>
+                    <Text style={[s.linkText, { color: theme.danger }]}>Remover Conta Pro/Origamista</Text>
                     <Feather name="star" size={20} color={theme.danger} />
                   </TouchableOpacity>
                 )}
@@ -297,4 +363,22 @@ const s = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   modalTitle: { fontSize: 20, fontWeight: '800' },
   closeBtn: { padding: 4 },
+  
+  inputObj: {
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 14,
+  },
+  filesList: { gap: 12 },
+  fileCard: {
+    flexDirection: 'row', alignItems: 'center', padding: 16,
+    borderRadius: 16, borderWidth: 1,
+  },
+  fileIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  fileInfo: { flex: 1, marginLeft: 16 },
+  fileTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  fileSize: { fontSize: 12 },
+  fileAction: { padding: 8 }
 });

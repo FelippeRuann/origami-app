@@ -91,11 +91,19 @@ app.post('/api/upload-pdf', upload.single('pdf'), (req, res) => {
           console.log(`Lendo passo ${step.stepNumber} com Groq...`);
           
           const base64Image = Buffer.from(fs.readFileSync(step.imagePath)).toString('base64');
-          const prompt = "Leia as instruções de origami nesta imagem. Retorne APENAS o texto da instrução, de forma clara e direta. Não adicione comentários extras.";
+          const prompt = `Você é um instrutor especialista em origami e visão computacional.
+Sua tarefa é analisar a imagem extraída de um diagrama de origami e traduzir/interpretar o que deve ser feito no papel.
+
+REGRAS RÍGIDAS:
+1. Se houver texto em outros idiomas (como chinês, japonês ou inglês), TRADUZA-O para o Português do Brasil com termos de dobradura clássicos (Dobra em vale, dobra em montanha, inverter, etc.).
+2. Se a imagem contiver APENAS a modelo final, ilustrações decorativas ou não representar uma instrução de dobradura, responda EXATAMENTE com a frase: 'Imagem de referência do modelo'.
+3. Se a imagem tiver pouquíssimo texto ou apenas um número, mas a imagem MOSTRAR UMA AÇÃO (ex: dobrando uma ponta), DESCREVA A AÇÃO que deve ser feita na imagem baseando-se nas setas de origami. Ex: 'Dobre a aba superior para baixo usando a linha tracejada'.
+4. IGNORE e não mencione logos, marcas d'água, dicas de papel ou números de páginas.
+5. Seja claro, direto, e nunca use frases como "Na imagem eu vejo" ou "Parece que". Diga apenas a instrução imperativa.`;
           
           try {
             const response = await groq.chat.completions.create({
-              model: "meta-llama/llama-4-scout-17b-16e-instruct",
+              model: "llama-3.2-90b-vision-preview",
               messages: [
                 {
                   role: "user",

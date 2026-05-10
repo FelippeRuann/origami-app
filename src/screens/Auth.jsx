@@ -2,7 +2,14 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, KeyboardAvoidingView, Platform, Dimensions, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 import { useApp } from '../context/AppContext';
+
+let GoogleSignin = null;
+
+WebBrowser.maybeCompleteAuthSession();
 
 const { width } = Dimensions.get('window');
 
@@ -49,7 +56,49 @@ export default function Auth() {
   const [showPassword, setShowPassword] = useState(false); // Alterna a visibilidade da senha (olhinho)
   
   // Puxando funções do nosso contexto global
-  const { login, register, theme, resetPassword } = useApp();
+  const { login, loginWithGoogleToken, register, theme, resetPassword } = useApp();
+
+  const isExpoGo = Constants.appOwnership === 'expo';
+
+  // Configuração expo-auth-session para Expo Go
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    // TODO: Adicione seus IDs do GCP aqui
+    expoClientId: 'COLOQUE_SEU_EXPO_CLIENT_ID.apps.googleusercontent.com',
+    webClientId: 'COLOQUE_SEU_WEB_CLIENT_ID.apps.googleusercontent.com',
+    androidClientId: 'COLOQUE_SEU_ANDROID_CLIENT_ID.apps.googleusercontent.com',
+  });
+
+  // Configuração Nativa Native (Não Expo Go)
+  React.useEffect(() => {
+    // google-signin foi removido
+  }, [isExpoGo]);
+
+  // Handler para expo-auth-session
+  React.useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      if (authentication?.idToken) {
+        handleGoogleToken(authentication.idToken);
+      }
+    }
+  }, [response]);
+
+  const handleGoogleToken = async (idToken) => {
+    setLoading(true);
+    const result = await loginWithGoogleToken(idToken);
+    setLoading(false);
+    if (!result.success) {
+      Alert.alert("Ops!", "Erro no Google Login: " + result.error);
+    }
+  };
+
+  const handleGoogleLoginPress = async () => {
+    if (isExpoGo) {
+      promptAsync();
+    } else {
+      Alert.alert("Ops!", "O Google Login nativo foi removido.");
+    }
+  };
 
   // Função simples para calcular a força da senha
   const calcularForcaSenha = (senha) => {
@@ -246,7 +295,10 @@ export default function Auth() {
 
           <View style={styles.sociais}>
             {[['chrome', 'Google'], ['smartphone', 'Celular']].map(([icon, label]) => (
-              <TouchableOpacity key={label} style={[styles.btnSocial, { borderColor: theme.border, backgroundColor: theme.bg }]} onPress={() => login(label.toLowerCase())}>
+              <TouchableOpacity key={label} style={[styles.btnSocial, { borderColor: theme.border, backgroundColor: theme.bg }]} onPress={() => {
+                if (label === 'Google') handleGoogleLoginPress();
+                else login(label.toLowerCase());
+              }}>
                 <Feather name={icon} size={18} color={theme.text} />
                 <Text style={[styles.btnSocialText, { color: theme.text }]}>{label}</Text>
               </TouchableOpacity>
@@ -291,13 +343,14 @@ export default function Auth() {
             }
             // Abre a galeria para o usuário escolher a foto
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'],
               allowsEditing: true,
               aspect: [1, 1],
               quality: 0.5,
             });
             if (!result.canceled) {
-              setAvatarImageUri(result.assets[0].uri); // Salva a foto escolhida no estado
+              // Salva o arquivo direto se disponível (Web)
+              setAvatarImageUri(result.assets[0].file || result.assets[0].uri);
             }
           }}
         >
@@ -447,9 +500,9 @@ const styles = StyleSheet.create({
   subtitulo: { fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 40 },
   base: { paddingHorizontal: 24, paddingBottom: 48, gap: 12 },
   btnPrimario: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 8 },
-  btnPrimarioText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  btnPrimarioText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
   btnSecundario: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', borderWidth: 1.5 },
-  btnSecundarioText: { fontSize: 15, fontWeight: '600' },
+  btnSecundarioText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
   termos: { fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 4 },
 
   // Login
@@ -466,13 +519,13 @@ const styles = StyleSheet.create({
   inputWrap: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 14, gap: 10 },
   input: { flex: 1, paddingVertical: 14, fontSize: 14 },
   btnEntrar: { borderRadius: 14, paddingVertical: 16, alignItems: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
-  btnEntrarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  btnEntrarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
   dividerLinha: { flex: 1, height: 1 },
   dividerText: { fontSize: 12 },
   sociais: { flexDirection: 'row', gap: 12 },
   btnSocial: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5 },
-  btnSocialText: { fontSize: 13, fontWeight: '600' },
+  btnSocialText: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
   rodape: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 20 },
   rodapeText: { fontSize: 14 },
   rodapeLink: { fontSize: 14, fontWeight: '700' },
@@ -496,5 +549,5 @@ const styles = StyleSheet.create({
   checkbox: { width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 },
   termosText: { fontSize: 12, lineHeight: 18, flex: 1 },
   btnCriar: { borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 8 },
-  btnCriarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  btnCriarText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3, textAlign: 'center' },
 });

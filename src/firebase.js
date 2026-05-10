@@ -1,28 +1,41 @@
 import { initializeApp } from 'firebase/app';
-// 1. Importe o initializeAuth e o getReactNativePersistence
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeAuth, getAuth, browserLocalPersistence, getReactNativePersistence } from 'firebase/auth';
+import { initializeFirestore, CACHE_SIZE_UNLIMITED, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
-// 2. Importe o AsyncStorage
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "CHAVE_REMOVIDA",
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "origamiappteste.firebaseapp.com",
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "origamiappteste",
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "origamiappteste.firebasestorage.app",
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "1012273596746",
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:1012273596746:web:418ee5234d89b423a959b3"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET?.replace(/^gs:\/\//i, ''),
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);
 
-// 3. Substitua o antigo const auth = getAuth(app) por isso:
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+// 1. Configuração do Auth com Persistência
+let auth;
+if (Platform.OS === 'web') {
+  // No Navegador, usamos browserLocalPersistence
+  auth = initializeAuth(app, {
+    persistence: browserLocalPersistence
+  });
+} else {
+  // No Mobile (Expo), usamos AsyncStorage
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage)
+  });
+}
 
-const db = getFirestore(app);
+// 2. Configuração do Firestore (Offline Cache via AsyncStorage manual)
+const db = initializeFirestore(app, {});
+
+// Nota: A persistência nativa do Firestore no Expo Go pode ser instável.
+// Por isso, mantemos nossa estratégia de Cache Manual via AsyncStorage no AppContext.
+
 const storage = getStorage(app);
 
 export { auth, db, storage };
