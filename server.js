@@ -5,19 +5,20 @@ import { spawn } from 'child_process';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import path from 'path';
 import fs from 'fs';
-import Groq from 'groq-sdk';
+import { GoogleGenAI } from '@google/genai';
 import { createFoldFile } from './src/lib/foldFormat.js';
+import { processPdf } from './src/lib/processPdf.js';
 
 const app = express();
 const PORT = 3000;
 const EXPO_PORT = 8082;
 
-// Inicializa o Groq garantindo que a chave seja lida do .env
-const apiKey = process.env.GROQ_API_KEY;
-if (!apiKey) {
-  console.error("⚠️ AVISO: Chave GROQ_API_KEY não encontrada no arquivo .env!");
+// Inicializa o Gemini com a chave dedicada ao PDF
+const pdfApiKey = process.env.GEMINI_PDF_KEY;
+if (!pdfApiKey) {
+  console.error("⚠️ AVISO: Chave GEMINI_PDF_KEY não encontrada no arquivo .env!");
 }
-const groq = new Groq({ apiKey: apiKey || 'dummy' });
+const pdfAI = new GoogleGenAI({ apiKey: pdfApiKey || 'dummy' });
 
 // Garantir que as pastas existem
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -29,7 +30,7 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 const upload = multer({ dest: 'uploads/' });
 
 // Rota da nossa API (Backend)
-app.post('/api/upload-pdf', upload.single('pdf'), (req, res) => {
+app.post('/api/upload-pdf', upload.single('pdf'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   }
@@ -40,40 +41,23 @@ app.post('/api/upload-pdf', upload.single('pdf'), (req, res) => {
   const modelPath = path.join(process.cwd(), 'models', 'best.pt');
   const jobOutputDir = path.join(outputDir, req.file.filename);
   
-  if (!fs.existsSync(modelPath)) {
-    return res.status(500).json({ error: 'Modelo best.pt não encontrado na pasta models.' });
-  }
+  console.log('🤖 Iniciando processamento de PDF em JavaScript...');
 
-  console.log('🤖 Iniciando Visão Computacional (YOLO)...');
-  
-  // Chamar o script Python (usando 'python' em vez de 'python3' para Windows)
-  const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
-  const pythonProcess = spawn(pythonCommand, ['process_pdf.py', pdfPath, modelPath, jobOutputDir]);
-  
-  let pythonOutput = '';
-  
-  pythonProcess.stdout.on('data', (data) => {
-    pythonOutput += data.toString();
-  });
-  
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`YOLO Log: ${data}`);
-  });
-  
-  pythonProcess.on('close', async (code) => {
-    console.log(`Python finalizou com código ${code}`);
-    
-    try {
-      // O Python imprime o JSON na última linha
-      const jsonStr = pythonOutput.trim().split('\n').pop();
-      const result = JSON.parse(jsonStr);
-      
-      if (result.error) {
-        return res.status(500).json({ error: 'Erro no YOLO: ' + result.error });
-      }
-      
-      console.log('✅ YOLO finalizado! Iniciando leitura com Groq (Llama Vision)...');
-      
+  try {
+    const result = await processPdf(pdfPath, jobOutputDir, req.file.originalname);
+
+    console.log('✅ PDF processado! Iniciando leitura com Gemini Vision (paralelo)...');
+
+      const prompt = `Você é um instrutor especialista em origami e visão computacional.
+Sua tarefa é analisar a imagem extraída de um diagrama de origami e traduzir/interpretar o que deve ser feito no papel.
+
+REGRAS RÍGIDAS:
+1. Se houver texto em outros idiomas (como chinês, japonês ou inglês), TRADUZA-O para o Português do Brasil com termos de dobradura clássicos (Dobra em vale, dobra em montanha, inverter, etc.).
+2. Se a imagem contiver APENAS a modelo final, ilustrações decorativas ou não representar uma instrução de dobradura, responda EXATAMENTE com a frase: 'Imagem de referência do modelo'.
+3. Se a imagem tiver pouquíssimo texto ou apenas um número, mas a imagem MOSTRAR UMA AÇÃO (ex: dobrando uma ponta), DESCREVA A AÇÃO que deve ser feita na imagem baseando-se nas setas de origami. Ex: 'Dobre a aba superior para baixo usando a linha tracejada'.
+4. IGNORE e não mencione logos, marcas d'água, dicas de papel ou números de páginas.
+5. Seja claro, direto, e nunca use frases como "Na imagem eu vejo" ou "Parece que". Diga apenas a instrução imperativa.`;
+
       const foldData = {
         title: req.file.originalname.replace('.pdf', ''),
         coverImage: null,
@@ -85,59 +69,43 @@ app.post('/api/upload-pdf', upload.single('pdf'), (req, res) => {
         foldData.coverImage = `data:image/jpeg;base64,${Buffer.from(fs.readFileSync(result.cover)).toString('base64')}`;
       }
 
-      // 2. Processar cada passo com o Groq (Llama Vision)
-      for (const step of result.steps) {
-        if (fs.existsSync(step.imagePath)) {
-          console.log(`Lendo passo ${step.stepNumber} com Groq...`);
-          
-          const base64Image = Buffer.from(fs.readFileSync(step.imagePath)).toString('base64');
-          const prompt = `Você é um instrutor especialista em origami e visão computacional.
-Sua tarefa é analisar a imagem extraída de um diagrama de origami e traduzir/interpretar o que deve ser feito no papel.
-
-REGRAS RÍGIDAS:
-1. Se houver texto em outros idiomas (como chinês, japonês ou inglês), TRADUZA-O para o Português do Brasil com termos de dobradura clássicos (Dobra em vale, dobra em montanha, inverter, etc.).
-2. Se a imagem contiver APENAS a modelo final, ilustrações decorativas ou não representar uma instrução de dobradura, responda EXATAMENTE com a frase: 'Imagem de referência do modelo'.
-3. Se a imagem tiver pouquíssimo texto ou apenas um número, mas a imagem MOSTRAR UMA AÇÃO (ex: dobrando uma ponta), DESCREVA A AÇÃO que deve ser feita na imagem baseando-se nas setas de origami. Ex: 'Dobre a aba superior para baixo usando a linha tracejada'.
-4. IGNORE e não mencione logos, marcas d'água, dicas de papel ou números de páginas.
-5. Seja claro, direto, e nunca use frases como "Na imagem eu vejo" ou "Parece que". Diga apenas a instrução imperativa.`;
-          
-          try {
-            const response = await groq.chat.completions.create({
-              model: "llama-3.2-90b-vision-preview",
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "text", text: prompt },
-                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
+      // 2. Processar todos os passos em paralelo com Gemini
+      const stepResults = await Promise.all(
+        result.steps
+          .filter(step => fs.existsSync(step.imagePath))
+          .map(async (step) => {
+            const base64Image = Buffer.from(fs.readFileSync(step.imagePath)).toString('base64');
+            console.log(`Lendo passo ${step.stepNumber} com Gemini...`);
+            try {
+              const response = await pdfAI.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: [{
+                  role: 'user',
+                  parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
                   ]
-                }
-              ],
-              temperature: 0.1,
-              max_completion_tokens: 1024,
-            });
-            
-            foldData.steps.push({
-              stepNumber: step.stepNumber,
-              instruction: response.choices[0].message.content.trim(),
-              image: `data:image/jpeg;base64,${base64Image}`
-            });
-            
-            // Pausa de 2 segundos (Groq tem limite de 30 RPM no free tier)
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-          } catch (apiError) {
-            console.error(`Erro na API para o passo ${step.stepNumber}:`, apiError.message || apiError);
-            foldData.steps.push({
-              stepNumber: step.stepNumber,
-              instruction: "Instrução não pôde ser lida.",
-              image: `data:image/jpeg;base64,${base64Image}`
-            });
-          }
-        }
-      }
+                }]
+              });
+              return {
+                stepNumber: step.stepNumber,
+                instruction: response.text.trim(),
+                image: `data:image/jpeg;base64,${base64Image}`
+              };
+            } catch (apiError) {
+              console.error(`Erro na API para o passo ${step.stepNumber}:`, apiError.message || apiError);
+              return {
+                stepNumber: step.stepNumber,
+                instruction: 'Instrução não pôde ser lida.',
+                image: `data:image/jpeg;base64,${base64Image}`
+              };
+            }
+          })
+      );
 
-      console.log('✅ Groq finalizado! Criando arquivo .fold...');
+      foldData.steps = stepResults.sort((a, b) => a.stepNumber - b.stepNumber);
+
+      console.log('✅ Gemini finalizado! Criando arquivo .fold...');
 
       // 3. Criar o arquivo .fold criptografado
       const foldFileName = `${req.file.filename}.fold`;
@@ -145,22 +113,34 @@ REGRAS RÍGIDAS:
       
       createFoldFile(foldData, foldFilePath);
 
-      // 4. Enviar o arquivo de volta para o aplicativo
-      res.download(foldFilePath, req.file.originalname.replace('.pdf', '.fold'), (err) => {
-        if (err) {
-          console.error("Erro ao enviar o arquivo .fold:", err);
-        }
-        
-        // Limpeza (opcional): apagar os arquivos temporários depois de enviar
-        // fs.rmSync(jobOutputDir, { recursive: true, force: true });
-        // fs.unlinkSync(pdfPath);
+      // Ler o arquivo .fold criado e converter em base64
+      let foldFileBase64 = null;
+      try {
+        foldFileBase64 = fs.readFileSync(foldFilePath).toString('base64');
+      } catch (readErr) {
+        console.error("Erro ao ler arquivo .fold gerado:", readErr);
+      }
+
+      // 4. Enviar o JSON com tudo para o aplicativo
+      res.json({
+        success: true,
+        foldData: foldData,
+        foldFileBase64: foldFileBase64,
+        filename: req.file.originalname.replace('.pdf', '.fold')
       });
+
+      // Limpeza temporária em background
+      try {
+        fs.rmSync(jobOutputDir, { recursive: true, force: true });
+        fs.unlinkSync(pdfPath);
+      } catch (cleanErr) {
+        console.warn("Aviso ao limpar arquivos temporários:", cleanErr);
+      }
       
-    } catch (e) {
-      console.error("Erro ao processar as imagens do PDF:", e);
-      res.status(500).json({ error: 'Erro ao processar as imagens do PDF.' });
-    }
-  });
+  } catch (e) {
+    console.error("Erro ao processar as imagens do PDF:", e);
+    res.status(500).json({ error: 'Erro ao processar as imagens do PDF.' });
+  }
 });
 
 // Iniciar o Expo em background para o Frontend continuar funcionando

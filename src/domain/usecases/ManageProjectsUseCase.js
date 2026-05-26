@@ -1,3 +1,4 @@
+import { OrigamiProject } from '../entities/OrigamiProject';
 import { OrigamiProjectRepository } from '../../data/repositories/OrigamiProjectRepository';
 /**
  * Use Case (Casos de Uso - Clean Architecture)
@@ -82,5 +83,36 @@ export class ManageProjectsUseCase {
 
   static async removeProject(id, userId = null) {
     return await OrigamiProjectRepository.delete(id, userId);
+  }
+
+  static async updateProjectTitle(projectId, newTitle, userId = null) {
+    if (!newTitle || newTitle.trim() === '') {
+      throw new Error("O título é obrigatório");
+    }
+
+    const projects = await OrigamiProjectRepository.getAll(userId);
+    const pData = projects.find(p => p.id === projectId || p.id?.toString() === projectId?.toString());
+
+    if (!pData) {
+      throw new Error("Projeto não encontrado");
+    }
+
+    // Instancia a Entidade de Domínio OrigamiProject para encapsular a regra de negócio
+    const origamiProject = new OrigamiProject(
+      pData.id,
+      pData.title,
+      pData.url,
+      pData.videoId,
+      pData.type,
+      pData.progress,
+      pData.date,
+      pData.data
+    );
+
+    // Executa a regra de negócio na entidade
+    origamiProject.changeTitle(newTitle);
+
+    // Salva no repositório
+    return await OrigamiProjectRepository.save(origamiProject, userId);
   }
 }

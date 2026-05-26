@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions, Image, Alert } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, AntDesign } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { YouTubeService } from '../domain/services/YouTubeService';
@@ -23,7 +23,7 @@ const RECOMMENDED_IDS = [];
 /**
  * Componente HeroBanner: Aquele banner grande em destaque no topo da tela.
  */
-function HeroBanner({ theme }) {
+function HeroBanner({ theme, onPlayRandom }) {
   return (
     <View style={[s.hero, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={[s.heroBlob1, { backgroundColor: theme.primary, opacity: 0.2 }]} />
@@ -32,14 +32,14 @@ function HeroBanner({ theme }) {
         <Text style={[s.heroTag, { color: theme.primary }]}>✦ BANCO DE VÍDEOS IA-POWERED</Text>
         <Text style={[s.heroTitle, { color: theme.text }]}>Curadoria{'\n'}Especializada{'\n'}via Gemini</Text>
         <Text style={[s.heroSub, { color: theme.textMuted }]}>
-          Nossa IA analisa visualmente milhars de vídeos para trazer apenas tutoriais reais e de alta qualidade para você.
+          Nossa IA analisa visualmente milhares de vídeos para trazer apenas tutoriais reais e de alta qualidade para você.
         </Text>
-        <TouchableOpacity style={[s.heroBtn, { backgroundColor: theme.primary }]} activeOpacity={0.85}>
+        <TouchableOpacity style={[s.heroBtn, { backgroundColor: theme.primary }]} onPress={onPlayRandom} activeOpacity={0.85}>
           <Text style={[s.heroBtnText, { color: theme.bg }]}>Assistir Agora →</Text>
         </TouchableOpacity>
       </View>
       <View style={s.heroShapes}>
-        <View style={[s.shape, s.shapeTeal, { backgroundColor: '#FF0000' }]}   >
+        <View style={[s.shape, s.shapeTeal, { backgroundColor: '#FF0000' }]}>
            <Feather name="play-circle" size={40} color="#fff" style={{margin: 10}}/>
         </View>
       </View>
@@ -51,11 +51,14 @@ function HeroBanner({ theme }) {
  * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados (YouTube).
  */
 function RecommendedCard({ item, theme, onPlay }) {
-  const [liked, setLiked] = useState(false);
-  const { addImportedProject } = useApp();
+  const { addImportedProject, savedOrigamis, importedProjects } = useApp();
+  const [saved, setSaved] = useState(() => {
+    const inSaved = (savedOrigamis || []).some(o => (o.videoId || o.youtubeId) === item.youtubeId);
+    const inImported = (importedProjects || []).some(p => p.videoId === item.youtubeId);
+    return inSaved || inImported;
+  });
 
   const handleSaveToLibrary = () => {
-    // Adiciona à biblioteca com as infos do Youtube
     const newYoutubeItem = {
       id: Date.now().toString(),
       title: item.title,
@@ -66,22 +69,23 @@ function RecommendedCard({ item, theme, onPlay }) {
       date: 'Agora'
     };
     addImportedProject(newYoutubeItem);
+    setSaved(true);
     Alert.alert('Salvo', 'Vídeo do YouTube adicionado à sua Biblioteca!');
   };
 
   return (
     <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border, width: '48%', marginBottom: 16 }]}>
       <TouchableOpacity style={[s.recImage, { backgroundColor: item.bg, height: 120 }]} onPress={() => onPlay(item)} activeOpacity={0.8}>
-        <Image 
+        <Image
            source={{ uri: item.thumbnailUrl || `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` }}
            style={[StyleSheet.absoluteFillObject, { opacity: 0.9 }]}
            resizeMode="cover"
         />
-        <View style={[s.diffBadge, { borderColor: item.difficultyColor }]}>
+        <View style={[s.diffBadge, { left: 12, borderColor: item.difficultyColor }]}>
           <Text style={[s.diffText, { color: item.difficultyColor }]}>{item.difficulty}</Text>
         </View>
-        <TouchableOpacity style={s.likeBtn} onPress={() => setLiked(!liked)}>
-          <Feather name="heart" size={16} color={liked ? theme.danger : "#fff"} />
+        <TouchableOpacity style={s.likeBtn} onPress={handleSaveToLibrary}>
+          <AntDesign name="heart" size={16} color={saved ? '#ef4444' : '#fff'} />
         </TouchableOpacity>
         <Feather name="play-circle" size={32} color="#fff" style={{ position: 'absolute', opacity: 0.8 }} />
       </TouchableOpacity>
@@ -93,14 +97,9 @@ function RecommendedCard({ item, theme, onPlay }) {
           <Feather name="eye" size={10} color={theme.textMuted} />
           <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10 }]}> {item.views}</Text>
         </View>
-        <View style={{flexDirection: 'row', gap: 6}}>
-           <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.danger, flex: 1, paddingVertical: 8 }]} activeOpacity={0.85} onPress={() => onPlay(item)}>
-             <Text style={[s.startBtnText, { color: 'white', fontSize: 10 }]}>Assistir</Text>
-           </TouchableOpacity>
-           <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.bg, borderColor: theme.border, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 }]} activeOpacity={0.85} onPress={handleSaveToLibrary}>
-             <Feather name="plus" size={12} color={theme.text}/>
-           </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.danger, paddingVertical: 8 }]} activeOpacity={0.85} onPress={() => onPlay(item)}>
+          <Text style={[s.startBtnText, { color: 'white', fontSize: 10 }]}>Assistir</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -135,12 +134,40 @@ export default function Discover() {
   const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
   const [allLoaded, setAllLoaded] = useState(false);
 
+  // Cache completo carregado uma vez ao iniciar busca
+  const [allVideosCache, setAllVideosCache] = useState(null);
+  const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+
   // Pega o tema e a função de navegação do contexto global
-  const { theme, setCurrentDetail, setIsFullscreenVideo } = useApp();
+  const { theme, setCurrentDetail, setIsFullscreenVideo, user } = useApp();
 
   useEffect(() => {
-    setIsFullscreenVideo(!!playingVideo && isLandscape);
-  }, [playingVideo, isLandscape]);
+    setIsFullscreenVideo(!!playingVideo);
+  }, [playingVideo]);
+
+  const handlePlayRandom = async () => {
+    try {
+      const video = await VideoDiscoveryUseCase.getRandomVideoByDifficulty(user?.rank || 'Iniciante');
+      if (!video) {
+        Alert.alert('Ops', 'Nenhum vídeo disponível para o seu nível ainda.');
+        return;
+      }
+      const d = video.difficulty?.toLowerCase() || 'easy';
+      let displayTime = video.duration || 'Tutorial';
+      if (displayTime.startsWith('PT')) displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
+      setPlayingVideo({
+        ...video,
+        youtubeId: video.videoId,
+        time: displayTime,
+        difficulty: d.toUpperCase(),
+        difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'intermediate') ? '#3B82F6' : '#22C55E',
+        views: 'IA Verified',
+        bg: '#000'
+      });
+    } catch {
+      Alert.alert('Erro', 'Não foi possível carregar o vídeo.');
+    }
+  };
 
   useEffect(() => {
     async function fetchCommunityVideos() {
@@ -224,10 +251,36 @@ export default function Discover() {
     }
   }, [playingVideo]);
 
+  // Carrega todos os vídeos uma vez quando o usuário começa a buscar
+  useEffect(() => {
+    if (!searchQuery || allVideosCache !== null) return;
+    setIsLoadingSearch(true);
+    VideoDiscoveryUseCase.getAllVideos().then(rawVideos => {
+      const mapped = rawVideos.map(v => {
+        const d = v.difficulty?.toLowerCase() || 'easy';
+        let displayTime = v.duration || 'Tutorial';
+        if (displayTime.startsWith('PT')) displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
+        return {
+          ...v,
+          youtubeId: v.videoId,
+          time: displayTime,
+          difficulty: d.toUpperCase(),
+          difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
+          views: 'IA Verified',
+          bg: '#000'
+        };
+      });
+      setAllVideosCache(mapped);
+    }).catch(() => {
+      setAllVideosCache(videos); // fallback para o que já está em memória
+    }).finally(() => setIsLoadingSearch(false));
+  }, [searchQuery]);
+
   // Filtra a lista de recomendados com base no que o usuário digitou na busca
-  const filteredRecommended = videos.filter(item => 
-    item.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const sourceForSearch = allVideosCache || videos;
+  const filteredRecommended = searchQuery
+    ? sourceForSearch.filter(item => item.title?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : videos;
 
   // Truque/Easter Egg: Se buscar por "drag" e não achar nada, mostra um dragão secreto
   const displayRecommended = searchQuery.toLowerCase().includes('drag') && filteredRecommended.length === 0
@@ -240,7 +293,7 @@ export default function Discover() {
          {!isLandscape && (
            <TouchableOpacity 
              style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
-             onPress={() => setPlayingVideo(null)}
+             onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
            >
               <Feather name="arrow-left" size={24} color={theme.text} />
               <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar ao Início</Text>
@@ -258,9 +311,9 @@ export default function Discover() {
               }}
             />
             {isLandscape && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={{ position: 'absolute', top: 20, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 20 }}
-                onPress={() => setPlayingVideo(null)}
+                onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
               >
                 <Feather name="arrow-left" size={24} color="white" />
               </TouchableOpacity>
@@ -331,7 +384,7 @@ export default function Discover() {
         }}
         scrollEventThrottle={400}
       >
-        <HeroBanner theme={theme} />
+        <HeroBanner theme={theme} onPlayRandom={handlePlayRandom} />
 
         {/* Categories section hidden as requested */}
         {/*
@@ -363,8 +416,10 @@ export default function Discover() {
               </View>
             )}
           </View>
-          {isLoadingVideos ? (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>Buscando do YouTube (Clean Arch)...</Text>
+          {isLoadingVideos || isLoadingSearch ? (
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>
+              {isLoadingSearch ? 'Buscando em todos os vídeos...' : 'Buscando do YouTube (Clean Arch)...'}
+            </Text>
           ) : displayRecommended.length > 0 ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
               {displayRecommended.map((item) => <RecommendedCard key={item.id} item={item} theme={theme} onPlay={setPlayingVideo} />)}
@@ -373,7 +428,7 @@ export default function Discover() {
             <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>
               {searchQuery 
                 ? `Nenhum modelo encontrado para "${searchQuery}"` 
-                : "Nenhum modelo para descobrir. Por favor, fique online para acessar os modelos."}
+                : "Nenhum modelo para descobrir. Por favor, fique online para acessar novos modelos."}
             </Text>
           )}
           {isLoadingMore && (
@@ -435,9 +490,9 @@ const s = StyleSheet.create({
 
   recCard:      { borderRadius: 16, overflow: 'hidden', marginBottom: 16, borderWidth: 1 },
   recImage:     { height: 180, alignItems: 'center', justifyContent: 'center' },
-  diffBadge:    { position: 'absolute', top: 12, right: 12, borderWidth: 1.5, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(0,0,0,0.5)' },
+  diffBadge:    { position: 'absolute', top: 12, borderWidth: 1.5, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(0,0,0,0.5)' },
   diffText:     { fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
-  likeBtn:      { position: 'absolute', top: 12, left: 12 },
+  likeBtn:      { position: 'absolute', top: 12, right: 12 },
   recInfo:      { padding: 16 },
   recTitle:     { fontSize: 18, fontWeight: '800', marginBottom: 6 },
   recMeta:      { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },

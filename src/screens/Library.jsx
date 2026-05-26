@@ -1,21 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Alert, ActivityIndicator, Platform, TextInput, Image, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { storage } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const { width } = Dimensions.get('window');
 
-// DICA: Se estiver usando o celular físico (Expo Go), troque 'localhost' pelo IP do seu computador na rede Wi-Fi.
-const API_URL = Platform.OS === 'web' ? '/api/upload-pdf' : 'http://localhost:3000/api/upload-pdf';
+// DICA: Usando o IP da nuvem ou do Expo local para o celular físico encontrar o servidor.
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://uploadpdf-ulb2s3fzra-uc.a.run.app';
 
 export default function Library() {
-  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading } = useApp();
-  const [isConverting, setIsConverting] = useState(false);
+  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertedFiles, setConvertedFiles] = useState([]);
+  
+  // Renaming state
+  const [editingProject, setEditingProject] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [selectedTeacher, setSelectedTeacher] = useState(null);
+
+  const playerRef = useRef(null);
+  const completionTrackedRef = useRef(false);
   
   // Mescla projetos importados com origamis salvos da comunidade em uma única lista
   const allProjects = React.useMemo(() => {
@@ -81,13 +92,6 @@ export default function Library() {
 
   const isLandscape = windowDims.width > windowDims.height;
 
-  useEffect(() => {
-    setIsFullscreenVideo(!!playingVideo && isLandscape);
-  }, [playingVideo, isLandscape]);
-
-  // Arquivos convertidos na sessão
-  const [convertedFiles, setConvertedFiles] = useState([]);
-
   // Filtragem local
   const filteredProjects = allProjects.filter(p => 
     p.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -99,6 +103,28 @@ export default function Library() {
     } else {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     }
+  }, [playingVideo]);
+
+  // Detecta minuto final do vídeo (polling a cada 10s)
+  useEffect(() => {
+    if (!playingVideo) return;
+    completionTrackedRef.current = false;
+
+    const interval = setInterval(async () => {
+      if (completionTrackedRef.current || !playerRef.current) return;
+      try {
+        const [currentTime, duration] = await Promise.all([
+          playerRef.current.getCurrentTime(),
+          playerRef.current.getDuration(),
+        ]);
+        if (duration > 0 && currentTime >= duration - 60) {
+          completionTrackedRef.current = true;
+          updateVideoProgress(playingVideo.id, Math.floor(currentTime), true);
+        }
+      } catch {}
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [playingVideo]);
 
   if (isInitialLoading) {
@@ -137,54 +163,6 @@ export default function Library() {
     Alert.alert('Salvo!', 'Vídeo adicionado à sua biblioteca local.');
   };
 
-  const handleImportFold = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/octet-stream', '*/*'],
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
-      const file = result.assets[0];
-      
-      // Lê o conteúdo do arquivo
-      const response = await fetch(file.uri);
-      const fileText = await response.text();
-      let foldData;
-      
-      try {
-        foldData = JSON.parse(fileText);
-      } catch (e) {
-        Alert.alert('Formato inválido', 'O arquivo selecionado não é um arquivo .fold válido.');
-        return;
-      }
-
-      if (!foldData || !foldData.steps || !Array.isArray(foldData.steps)) {
-        Alert.alert('Arquivo inválido', 'O arquivo não contém a estrutura de um origami.');
-        return;
-      }
-
-      const newProject = {
-        id: Date.now().toString(),
-        title: foldData.title || file.name.replace(/\.fold$/, ''),
-        progress: '0%',
-        date: 'Agora',
-        data: foldData
-      };
-
-      // Adiciona o novo projeto no estado global e salva no AsyncStorage da memória do aparelho
-      addImportedProject(newProject);
-      Alert.alert('Sucesso!', 'Origami importado e salvo no seu celular! Clique nela para abrir.');
-
-    } catch (error) {
-      console.error('Erro ao importar:', error);
-      Alert.alert('Erro', 'Não foi possível importar o arquivo.');
-    }
-  };
-
   const handleConvertPDF = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -216,35 +194,193 @@ export default function Library() {
         },
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      console.log("Raw response from server:", responseText.slice(0, 500));
 
-      if (response.ok) {
-        Alert.alert('Sucesso!', 'PDF convertido para .fold com sucesso!');
-        const newFile = {
-          id: Date.now().toString(),
-          title: file.name.replace('.pdf', '.fold'),
-          size: 'Pronto',
-          date: 'Agora'
-        };
-        setConvertedFiles([newFile, ...convertedFiles]);
-      } else {
-        Alert.alert('Erro', data.error || 'Falha ao converter o PDF');
+      if (!response.ok) {
+        let errData;
+        try {
+          errData = JSON.parse(responseText);
+        } catch {
+          errData = { error: 'Unknown server error: ' + (responseText ? responseText.slice(0, 100) : 'vazio') };
+        }
+        Alert.alert('Erro', errData.error || 'Falha ao converter o PDF');
+        return;
       }
+
+      // Recebemos o JSON do servidor
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Erro de parse JSON no corpo da resposta:", parseError);
+        Alert.alert('Erro de Resposta', 'O servidor retornou uma resposta inválida (não-JSON):\n\n' + responseText.slice(0, 200));
+        return;
+      }
+      const foldData = data.foldData;
+      const finalFileName = data.filename || file.name.replace('.pdf', '.fold');
+      
+      let storageUrl = null;
+
+      try {
+        // Se temos o base64 do .fold e usuário logado, vamos salvar no Storage da nuvem sob users/<userId>/origamis/
+        if (user && user.uid && data.foldFileBase64) {
+          console.log("Uploading .fold to Firebase Storage...");
+          const storageRef = ref(storage, `users/${user.uid}/origamis/${finalFileName}`);
+          
+          // Função auxiliar para decodificar base64 puro em Uint8Array compatível com uploadBytes
+          const base64ToUint8Array = (b64) => {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            const lookup = new Uint8Array(256);
+            for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+            let bufferLength = b64.length * 0.75, len = b64.length, i, p = 0;
+            if (b64[len - 1] === "=") { bufferLength--; if (b64[len - 2] === "=") bufferLength--; }
+            const bytes = new Uint8Array(bufferLength);
+            for (i = 0; i < len; i += 4) {
+              const encoded1 = lookup[b64.charCodeAt(i)];
+              const encoded2 = lookup[b64.charCodeAt(i + 1)];
+              const encoded3 = lookup[b64.charCodeAt(i + 2)];
+              const encoded4 = lookup[b64.charCodeAt(i + 3)];
+              bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+              if (p < bufferLength) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+              if (p < bufferLength) bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+            }
+            return bytes;
+          };
+
+          const binaryBytes = base64ToUint8Array(data.foldFileBase64);
+          await uploadBytes(storageRef, binaryBytes);
+          storageUrl = await getDownloadURL(storageRef);
+          console.log("Uploaded successfully to Firebase Storage. URL:", storageUrl);
+        }
+      } catch (uploadError) {
+        console.warn("Could not save to Firebase Storage (maybe not logged in):", uploadError);
+      }
+
+      // Adicionar à biblioteca local
+      try {
+        const fileSizeBytes = data.foldFileBase64 ? (data.foldFileBase64.length * 0.75) : 0;
+        const newFile = {
+            id: Date.now().toString(),
+            title: finalFileName,
+            size: (fileSizeBytes / 1024).toFixed(2) + ' KB',
+            date: 'Agora',
+            data: foldData,
+            storageUrl: storageUrl, // Se salvou na nuvem, mantém o link
+            type: 'fold'
+        };
+
+        addImportedProject(newFile);
+        setConvertedFiles([newFile, ...convertedFiles]);
+        Alert.alert('Sucesso!', 'PDF convertido com sucesso e salvo na sua biblioteca/nuvem!');
+      } catch (jsonError) {
+        Alert.alert('Erro ao interpretar', 'O servidor não devolveu um arquivo .fold válido.');
+      }
+
     } catch (error) {
       console.error('Erro na conversão:', error);
-      Alert.alert('Erro de Conexão', 'Não foi possível conectar ao servidor. Verifique se o IP está correto e se o servidor está rodando.');
+      Alert.alert('Erro de Conexão', 'Não foi possível conectar ao servidor. Mude para a web ou verifique o IP da API.');
     } finally {
       setIsConverting(false);
     }
   };
 
+  const extractYtId = (url) => {
+    if (!url) return null;
+    const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|v\/))([^&?]*)/);
+    return m ? m[1] : null;
+  };
+
+  if (selectedTeacher) {
+    const teacherActivities = classActivities.filter(a => a.teacherId === selectedTeacher.teacherId);
+    return (
+      <View style={[s.root, { backgroundColor: theme.bg }]}>
+        <View style={[s.topBar, { backgroundColor: theme.bg }]}>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setSelectedTeacher(null)}>
+            <Feather name="arrow-left" size={24} color={theme.text} />
+            <Text style={{ color: theme.text, fontSize: 16, marginLeft: 10, fontWeight: '700' }}>Voltar</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20 }}>
+          <View style={[s.teacherAvatarLg, { backgroundColor: theme.primary }]}>
+            {selectedTeacher.teacherPhoto?.startsWith('http') ? (
+              <Image source={{ uri: selectedTeacher.teacherPhoto }} style={{ width: 60, height: 60, borderRadius: 30 }} />
+            ) : (
+              <Text style={{ color: theme.bg, fontWeight: '900', fontSize: 24 }}>
+                {(selectedTeacher.teacherName || '?').charAt(0).toUpperCase()}
+              </Text>
+            )}
+          </View>
+          <View style={{ marginLeft: 16, flex: 1 }}>
+            <Text style={{ color: theme.text, fontSize: 22, fontWeight: '900' }}>{selectedTeacher.teacherName}</Text>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {teacherActivities.length} {teacherActivities.length === 1 ? 'aula publicada' : 'aulas publicadas'}
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          {teacherActivities.length === 0 ? (
+            <View style={{ padding: 40, alignItems: 'center', opacity: 0.6 }}>
+              <Feather name="inbox" size={36} color={theme.textMuted} style={{ marginBottom: 12 }} />
+              <Text style={{ color: theme.textMuted, textAlign: 'center' }}>Este origamista ainda não publicou nenhuma aula.</Text>
+            </View>
+          ) : (
+            <View style={s.filesList}>
+              {teacherActivities.map(act => {
+                const videoId = act.type === 'Video' ? extractYtId(act.url) : null;
+                return (
+                  <TouchableOpacity
+                    key={act.id}
+                    style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    onPress={async () => {
+                      if (act.type === 'Video' && videoId) {
+                        setIsFullscreenVideo(true);
+                        setPlayingVideo({ id: act.id, title: act.title, videoId });
+                      } else if (act.url) {
+                        try {
+                          const res = await fetch(act.url);
+                          const data = await res.json();
+                          setFoldingOrigami(data);
+                        } catch {
+                          Alert.alert('Erro', 'Não foi possível abrir este arquivo.');
+                        }
+                      }
+                    }}
+                  >
+                    <View style={[s.fileIcon, { backgroundColor: act.type === 'Video' ? theme.danger : theme.primaryLight, overflow: 'hidden' }]}>
+                      {act.type === 'Video' && videoId ? (
+                        <>
+                          <Image source={{ uri: `https://img.youtube.com/vi/${videoId}/default.jpg` }} style={[StyleSheet.absoluteFillObject, { opacity: 0.8 }]} resizeMode="cover" />
+                          <Feather name="play" size={16} color="white" style={{ position: 'absolute' }} />
+                        </>
+                      ) : (
+                        <Feather name="file-text" size={20} color={theme.primary} />
+                      )}
+                    </View>
+                    <View style={s.fileInfo}>
+                      <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{act.title}</Text>
+                      <Text style={[s.fileSize, { color: theme.textDim }]}>{new Date(act.createdAt).toLocaleDateString('pt-BR')}</Text>
+                    </View>
+                    <Feather name="chevron-right" size={20} color={theme.textDim} style={{ marginLeft: 8 }} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (playingVideo) {
     return (
       <View style={[s.root, { backgroundColor: theme.bg, paddingTop: isLandscape ? 0 : 40 }]}>
          {!isLandscape && (
-           <TouchableOpacity 
+           <TouchableOpacity
              style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
-             onPress={() => setPlayingVideo(null)}
+             onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
            >
               <Feather name="arrow-left" size={24} color={theme.text} />
               <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar à Biblioteca</Text>
@@ -252,6 +388,7 @@ export default function Library() {
          )}
          <View style={{ width: isLandscape ? '100%' : windowDims.width, height: isLandscape ? '100%' : 300, backgroundColor: 'black' }}>
             <YoutubePlayer
+              ref={playerRef}
               height={isLandscape ? windowDims.height : 300}
               width={windowDims.width}
               play={true}
@@ -261,15 +398,16 @@ export default function Library() {
                 allowsInlineMediaPlayback: true,
               }}
               onChangeState={(state) => {
-                if (state === 'ended') {
-                  updateVideoProgress(playingVideo.id, 100);
+                if (state === 'ended' && !completionTrackedRef.current) {
+                  completionTrackedRef.current = true;
+                  updateVideoProgress(playingVideo.id, 100, true);
                 }
               }}
             />
             {isLandscape && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={{ position: 'absolute', top: 20, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 20 }}
-                onPress={() => setPlayingVideo(null)}
+                onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
               >
                 <Feather name="arrow-left" size={24} color="white" />
               </TouchableOpacity>
@@ -340,11 +478,6 @@ export default function Library() {
                 + YouTube
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleImportFold}>
-              <Text style={[s.sectionSubtitle, { color: theme.primary, fontWeight: 'bold' }]}>
-                + .fold
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -379,6 +512,7 @@ export default function Library() {
                   style={{flexDirection: 'row', flex: 1, alignItems: 'center'}}
                   onPress={async () => {
                     if(p.type === 'youtube') {
+                        setIsFullscreenVideo(true);
                         setPlayingVideo(p);
                     } else if (p.url && !p.data) {
                         try {
@@ -406,31 +540,44 @@ export default function Library() {
                     )}
                   </View>
                   <View style={s.fileInfo}>
-                    <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{p.title}</Text>
+                    <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{p.title?.replace(/\.fold$/, '')}</Text>
                     <Text style={[s.fileSize, { color: theme.textDim }]}>{p.type === 'youtube' ? (p.watchedSeconds ? `Parou em: ${p.watchedSeconds}s` : 'Salvo') : 'Progresso: ' + p.progress} • {p.date}</Text>
                   </View>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                   style={s.fileAction} 
-                   onPress={() => {
-                     Alert.alert('Excluir', 'Deseja remover este projeto?', [
-                       { text: 'Cancelar', style: 'cancel' },
-                       { 
-                         text: 'Remover', 
-                         style: 'destructive', 
-                         onPress: () => {
-                           const isCommunity = savedOrigamis.some(o => o.id === p.id || o.videoId === p.videoId);
-                           if (isCommunity) {
-                             unsaveOrigami(p.id);
-                           } else {
-                             removeImportedProject(p.id);
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  {(p.type === 'youtube' || p.type === 'fold') && (
+                    <TouchableOpacity 
+                       style={s.fileAction} 
+                       onPress={() => {
+                         setEditingProject(p);
+                         setEditTitle(p.title);
+                       }}
+                    >
+                      <Feather name="edit-2" size={18} color={theme.textDim} />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity 
+                     style={s.fileAction} 
+                     onPress={() => {
+                       Alert.alert('Excluir', 'Deseja remover este projeto?', [
+                         { text: 'Cancelar', style: 'cancel' },
+                         { 
+                           text: 'Remover', 
+                           style: 'destructive', 
+                           onPress: () => {
+                             const isCommunity = savedOrigamis.some(o => o.id === p.id || o.videoId === p.videoId);
+                             if (isCommunity) {
+                               unsaveOrigami(p.id);
+                             } else {
+                               removeImportedProject(p.id);
+                             }
                            }
                          }
-                       }
-                     ])
-                   }}>
-                  <Feather name="trash-2" size={20} color={theme.danger} />
-                </TouchableOpacity>
+                       ])
+                     }}>
+                    <Feather name="trash-2" size={20} color={theme.danger} />
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           ) : (
@@ -443,14 +590,83 @@ export default function Library() {
 
         <View style={s.divider} />
 
-        {/* BLOCO 2: FERRAMENTAS DO CRIADOR (CONVERSÃO) */}
+        {/* BLOCO 2: AULAS DO ORIGAMISTA */}
+        <View style={[s.sectionHeader, { flexDirection: 'column', alignItems: 'flex-start', marginBottom: 8 }]}>
+          <Text style={[s.sectionTitle, { color: theme.text }]}>Origamistas que sigo</Text>
+          <Text style={[s.sectionSubtitle, { color: theme.textMuted }]}>Toque num origamista para ver as aulas exclusivas</Text>
+        </View>
+
+        {studentSubscriptions.length === 0 ? (
+          <View style={{ padding: 20, alignItems: 'center', opacity: 0.6, marginBottom: 8 }}>
+            <Feather name="users" size={32} color={theme.textMuted} style={{ marginBottom: 8 }} />
+            <Text style={{ color: theme.textMuted, textAlign: 'center' }}>Você ainda não segue nenhum origamista.</Text>
+          </View>
+        ) : (
+          <View style={[s.filesList, { marginBottom: 8 }]}>
+            {studentSubscriptions.map(sub => {
+              const actCount = classActivities.filter(a => a.teacherId === sub.teacherId).length;
+              return (
+                <TouchableOpacity
+                  key={sub.teacherId}
+                  style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => setSelectedTeacher(sub)}
+                >
+                  <View style={[s.teacherAvatar, { backgroundColor: theme.primary }]}>
+                    {sub.teacherPhoto?.startsWith('http') ? (
+                      <Image source={{ uri: sub.teacherPhoto }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+                    ) : (
+                      <Text style={{ color: theme.bg, fontWeight: '900', fontSize: 18 }}>
+                        {(sub.teacherName || '?').charAt(0).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={s.fileInfo}>
+                    <Text style={[s.fileTitle, { color: theme.text }]}>{sub.teacherName}</Text>
+                    <Text style={[s.fileSize, { color: theme.textDim }]}>
+                      {actCount} {actCount === 1 ? 'aula' : 'aulas'} · Seguindo
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 24 }}>
+          <TextInput
+            style={[s.inputObj, { flex: 1, backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
+            placeholder="Código do Origamista (ex: A3F2-B19C)"
+            placeholderTextColor={theme.textDim}
+            value={inviteCode}
+            autoCapitalize="characters"
+            onChangeText={setInviteCode}
+          />
+          <TouchableOpacity
+            style={{ backgroundColor: theme.primary, paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}
+            onPress={async () => {
+              const res = await joinClass(inviteCode.toUpperCase());
+              if (res.success) {
+                Alert.alert('Seguindo!', res.message);
+                setInviteCode('');
+              } else {
+                Alert.alert('Erro', res.error);
+              }
+            }}
+          >
+            <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Seguir</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={s.divider} />
+
         <View style={[s.sectionHeader, { flexDirection: 'column', alignItems: 'flex-start' }]}>
           <Text style={[s.sectionTitle, { color: theme.text }]}>Ferramentas do Criador</Text>
           <Text style={[s.sectionSubtitle, { color: theme.textMuted }]}>Transforme PDFs em tutoriais interativos</Text>
         </View>
 
         <TouchableOpacity 
-          style={[s.importBtn, { borderColor: theme.primary, backgroundColor: theme.primaryLight, opacity: isConverting ? 0.7 : 1 }]} 
+          style={[s.importBtn, { borderColor: theme.primary, backgroundColor: theme.primary + '1A', opacity: isConverting ? 0.7 : 1 }]} 
           onPress={handleConvertPDF}
           disabled={isConverting}
         >
@@ -460,35 +676,77 @@ export default function Library() {
             <Feather name="upload-cloud" size={32} color={theme.primary} style={{ marginBottom: 12 }} />
           )}
           <Text style={[s.importText, { color: theme.primary }]}>
-            {isConverting ? 'Convertendo com YOLO + Gemini...' : 'Selecionar PDF para Converter'}
+            {isConverting ? 'Convertendo PDF com IA...' : 'Selecionar PDF para Converter'}
           </Text>
           <Text style={[s.importSubtext, { color: theme.primary, opacity: 0.8 }]}>
-            Gera um arquivo .fold automaticamente
+            Gera um arquivo .fold e salva no Storage da Nuvem
           </Text>
         </TouchableOpacity>
 
-        {/* Lista de Arquivos Convertidos Recentemente */}
         {convertedFiles.length > 0 && (
           <View style={s.filesList}>
             <Text style={[s.sectionSubtitle, { color: theme.text, marginBottom: 8, fontWeight: 'bold' }]}>Convertidos Recentemente:</Text>
             {convertedFiles.map(f => (
-              <View key={f.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.primary }]}>
-                <View style={[s.fileIcon, { backgroundColor: theme.primaryLight }]}>
+              <View key={f.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <View style={[s.fileIcon, { backgroundColor: theme.bg }]}>
                   <Feather name="package" size={20} color={theme.primary} />
                 </View>
                 <View style={s.fileInfo}>
-                  <Text style={[s.fileTitle, { color: theme.text }]}>{f.title}</Text>
+                  <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{f.title}</Text>
                   <Text style={[s.fileSize, { color: theme.textDim }]}>{f.size} • {f.date}</Text>
                 </View>
-                <TouchableOpacity style={s.fileAction}>
-                  <Feather name="download" size={20} color={theme.text} />
-                </TouchableOpacity>
               </View>
             ))}
           </View>
         )}
 
       </ScrollView>
+
+      {/* RENAME POPUP/DIALOG MODAL */}
+      {editingProject && (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 999 }]}>
+          <View style={{ backgroundColor: theme.surface, width: '90%', maxWidth: 400, padding: 22, borderRadius: 16, borderWidth: 1, borderColor: theme.border, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 10 }}>
+            <Text style={{ color: theme.text, fontSize: 18, fontWeight: 'bold', marginBottom: 6 }}>Renomear Vídeo</Text>
+            <Text style={{ color: theme.textDim, fontSize: 13, marginBottom: 16 }}>Mude o título deste vídeo para organizar sua biblioteca.</Text>
+            
+            <TextInput
+              style={[s.inputObj, { backgroundColor: theme.bg, color: theme.text, borderColor: theme.border, height: 48, borderRadius: 8, paddingHorizontal: 12, borderWidth: 1, marginBottom: 20 }]}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder="Digite o novo título..."
+              placeholderTextColor={theme.textDim}
+              autoFocus
+            />
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <TouchableOpacity 
+                style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: theme.border }}
+                onPress={() => setEditingProject(null)}
+              >
+                <Text style={{ color: theme.text, fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, backgroundColor: theme.primary }}
+                onPress={async () => {
+                  if (editTitle.trim().length === 0) {
+                    Alert.alert("Erro", "O título não pode estar em branco.");
+                    return;
+                  }
+                  try {
+                    await updateYoutubeVideoTitle(editingProject.id, editTitle.trim());
+                    setEditingProject(null);
+                    Alert.alert("Sucesso", "Vídeo renomeado para você!");
+                  } catch (e) {
+                    Alert.alert("Erro", "Ocorreu um erro ao renomear.");
+                  }
+                }}
+              >
+                <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Salvar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -515,15 +773,6 @@ const s = StyleSheet.create({
   sectionSubtitle: { fontSize: 13, marginTop: 2 },
 
   divider: { height: 1, backgroundColor: '#e5e5e5', marginVertical: 32, opacity: 0.5 },
-
-  importBtn: {
-    borderWidth: 2, borderStyle: 'dashed', borderRadius: 16,
-    padding: 32, alignItems: 'center', justifyContent: 'center',
-    marginBottom: 24,
-  },
-  importText: { fontSize: 16, fontWeight: '800', textAlign: 'center', marginBottom: 8, flexShrink: 1 },
-  importSubtext: { fontSize: 12, textAlign: 'center', fontWeight: '600' },
-
   filesList: { gap: 12 },
   fileCard: {
     flexDirection: 'row', alignItems: 'center', padding: 16,
@@ -534,6 +783,8 @@ const s = StyleSheet.create({
   fileTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   fileSize: { fontSize: 12 },
   fileAction: { padding: 8 },
+  teacherAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  teacherAvatarLg: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   
   searchBar: {
     flexDirection: 'row',
@@ -567,5 +818,16 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
-  }
+  },
+  importBtn: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  importText: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  importSubtext: { fontSize: 13, textAlign: 'center' },
 });

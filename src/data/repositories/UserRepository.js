@@ -31,6 +31,7 @@ export class UserRepository {
       isPro: false,
       isTeacher: false,
       watchedVideos: 0,
+      photo: userData.photo || 'user',
       createdAt: new Date().toISOString()
     });
 
@@ -59,7 +60,11 @@ export class UserRepository {
       rank: extraData.rank || 'Iniciante',
       isPro: extraData.isPro || false,
       isTeacher: extraData.isTeacher || false,
-      watchedVideos: extraData.watchedVideos || 0
+      watchedVideos: extraData.watchedVideos || 0,
+      teacherCode: extraData.teacherCode || null,
+      streak: extraData.streak || 0,
+      lastStreakDate: extraData.lastStreakDate || null,
+      achievements: extraData.achievements || [],
     });
   }
 
@@ -90,7 +95,11 @@ export class UserRepository {
         rank: extraData.rank || 'Iniciante',
         isPro: extraData.isPro || false,
         isTeacher: extraData.isTeacher || false,
-        watchedVideos: extraData.watchedVideos || 0
+        watchedVideos: extraData.watchedVideos || 0,
+        teacherCode: extraData.teacherCode || null,
+        streak: extraData.streak || 0,
+        lastStreakDate: extraData.lastStreakDate || null,
+        achievements: extraData.achievements || [],
       });
     } catch (error) {
       console.error("Erro authenticateWithGoogle", error);
@@ -123,7 +132,11 @@ export class UserRepository {
               rank: extraData.rank || 'Iniciante',
               isPro: extraData.isPro || false,
               isTeacher: extraData.isTeacher || false,
-              watchedVideos: extraData.watchedVideos || 0
+              watchedVideos: extraData.watchedVideos || 0,
+              teacherCode: extraData.teacherCode || null,
+              streak: extraData.streak || 0,
+              lastStreakDate: extraData.lastStreakDate || null,
+              achievements: extraData.achievements || [],
             }));
           } catch (e) {
             console.warn("Firestore inacessível (provavelmente offline), retornando dados básicos do Auth:", e);
@@ -137,7 +150,8 @@ export class UserRepository {
               rank: 'Iniciante', // Fallback
               isPro: false,
               isTeacher: false,
-              watchedVideos: 0
+              watchedVideos: 0,
+              teacherCode: null
             }));
           }
         } else {
@@ -169,7 +183,6 @@ export class UserRepository {
       const firestoreUpdates = { ...updates };
       delete firestoreUpdates.name;
       delete firestoreUpdates.email;
-      delete firestoreUpdates.photo;
       delete firestoreUpdates.id;
 
       if (Object.keys(firestoreUpdates).length > 0) {

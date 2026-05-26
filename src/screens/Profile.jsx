@@ -1,23 +1,20 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, Linking } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Notifications from 'expo-notifications';
 import { useApp } from '../context/AppContext';
 
 const { width } = Dimensions.get('window');
 
-const ACHIEVEMENTS = [
-  { id: '1', icon: 'zap', title: '7 Day Streak', desc: 'Folded every day for a week', unlocked: true },
-  { id: '2', icon: 'award', title: 'Master Folder', desc: 'Complete 50 advanced models', unlocked: false },
-  { id: '3', icon: 'star', title: 'First Creation', desc: 'Upload your first custom PDF', unlocked: true },
-];
-
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, classActivities, joinClass, setCurrentRoute } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showRankSelector, setShowRankSelector] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProPage, setShowProPage] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
   
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -36,7 +33,10 @@ export default function Profile() {
       Animated.timing(slideAnim, { toValue: 400, duration: 250, useNativeDriver: true })
     ]).start(() => {
       setShowSettings(false);
-      setShowEditProfile(false); // Reseta o menu ao fechar
+      setShowEditProfile(false);
+      setShowRankSelector(false);
+      setShowNotifications(false);
+      setShowProPage(false);
     });
   };
 
@@ -63,11 +63,44 @@ export default function Profile() {
       const imageFile = result.assets[0].file || result.assets[0].uri;
       const response = await updateAvatar(imageFile);
       setUploadingAvatar(false);
-      
+
       if (!response.success) {
         alert("Erro ao atualizar foto: " + response.error);
       }
     }
+  };
+
+  const handleSaveNotifPrefs = async (newPrefs) => {
+    try {
+      if (newPrefs.dailyReminder || newPrefs.streakAlert) {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permissão negada', 'Ative as notificações nas configurações do dispositivo para receber lembretes.');
+          return;
+        }
+      }
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      if (newPrefs.dailyReminder) {
+        const [h, m] = (newPrefs.reminderTime || '20:00').split(':').map(Number);
+        await Notifications.scheduleNotificationAsync({
+          content: { title: 'Hora de dobrar!', body: 'Seu lembrete diário de origami está esperando.', sound: true },
+          trigger: { hour: h, minute: m, repeats: true },
+        });
+      }
+      if (newPrefs.streakAlert) {
+        await Notifications.scheduleNotificationAsync({
+          content: { title: 'Não quebre seu streak!', body: 'Pratique origami hoje para manter sua sequência.', sound: true },
+          trigger: { hour: 20, minute: 0, repeats: true },
+        });
+      }
+      await updateNotifPrefs(newPrefs);
+    } catch (e) {
+      console.warn('Erro ao configurar notificações:', e);
+    }
+  };
+
+  const handleSupportEmail = () => {
+    Linking.openURL('mailto:suporte@exemplo.com?subject=Ajuda%20-%20OrigamiApp');
   };
 
   return (
@@ -124,92 +157,54 @@ export default function Profile() {
           
           <View style={s.statsContainer}>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.statNum, { color: theme.primary }]}>{user?.watchedVideos || Object.keys(importedProjects || {}).length || 0}</Text>
+              <Text style={[s.statNum, { color: theme.primary }]}>{user?.watchedVideos || 0}</Text>
               <Text style={[s.statLabel, { color: theme.textDim }]}>Assistidos</Text>
             </View>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.statNum, { color: theme.primary }]}>{ACHIEVEMENTS.filter(a => a.unlocked).length}</Text>
+              <Text style={[s.statNum, { color: theme.primary }]}>{user?.achievements?.length || 0}</Text>
               <Text style={[s.statLabel, { color: theme.textDim }]}>Conquistas</Text>
             </View>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.statNum, { color: theme.primary }]}>14</Text>
-              <Text style={[s.statLabel, { color: theme.textDim }]}>Streak</Text>
+              <Text style={[s.statNum, { color: theme.primary }]}>{user?.streak || 0}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Streak 🔥</Text>
             </View>
           </View>
-        </View>
 
-        {/* Achievements */}
-        <View style={s.section}>
-          <Text style={[s.sectionTitle, { color: theme.text }]}>Achievements</Text>
-          <View style={s.achieveList}>
-            {ACHIEVEMENTS.map(a => (
-              <View key={a.id} style={[s.achieveCard, { backgroundColor: theme.surface, borderColor: theme.border, opacity: a.unlocked ? 1 : 0.5 }]}>
-                <View style={[s.achieveIcon, { backgroundColor: a.unlocked ? theme.primaryLight : theme.bg }]}>
-                  <Feather name={a.unlocked ? a.icon : 'lock'} size={24} color={a.unlocked ? theme.primary : theme.textMuted} />
-                </View>
-                <View style={s.achieveInfo}>
-                  <Text style={[s.achieveTitle, { color: theme.text }]}>{a.title}</Text>
-                  <Text style={[s.achieveDesc, { color: theme.textMuted }]}>{a.desc}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Community / Siga um Origamista */}
-        <View style={s.section}>
-          <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 8 }]}>Comunidade PRO</Text>
-          <Text style={[{ color: theme.textMuted, fontSize: 13, marginBottom: 16 }]}>
-            Siga um origamista para receber tutoriais exclusivos diretamente no app.
-          </Text>
-
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-             <TextInput 
-               style={[s.inputObj, { flex: 1, backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
-               placeholder="Código do Origamista"
-               placeholderTextColor={theme.textDim}
-               value={inviteCode}
-               autoCapitalize="characters"
-               onChangeText={setInviteCode}
-             />
-             <TouchableOpacity 
-               style={{ backgroundColor: theme.primary, paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}
-               onPress={async () => {
-                 const res = await joinClass(inviteCode.toUpperCase());
-                 if (res.success) {
-                    alert('Você está seguindo a turma!');
-                    setInviteCode('');
-                 } else {
-                    alert('Erro: ' + res.error);
-                 }
-               }}
-             >
-               <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Seguir</Text>
-             </TouchableOpacity>
-          </View>
-
-          {classActivities.length > 0 && (
-            <View style={{ marginTop: 8 }}>
-              <Text style={{ fontSize: 12, fontWeight: '800', color: theme.textDim, marginBottom: 10, textTransform: 'uppercase' }}>Atividades Recentes da Turma:</Text>
-              <View style={s.filesList}>
-                 {classActivities.map((act) => (
-                    <View key={act.id} style={[s.fileCard, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}>
-                       <View style={[s.fileIcon, { backgroundColor: theme.primary }]}>
-                         <Feather name={act.type === 'Video' ? 'youtube' : 'file-text'} size={20} color={theme.bg} />
-                       </View>
-                       <View style={s.fileInfo}>
-                         <Text style={[s.fileTitle, { color: theme.primary }]} numberOfLines={1}>{act.title}</Text>
-                         <Text style={[s.fileSize, { color: theme.text }]}>{act.teacherName} • {act.type}</Text>
-                       </View>
-                       <TouchableOpacity style={s.fileAction} onPress={() => alert('Disponível apenas na Biblioteca na v2.0!')}>
-                         <Feather name="external-link" size={20} color={theme.primary} />
-                       </TouchableOpacity>
-                    </View>
-                 ))}
-              </View>
-            </View>
+          {/* Streak context */}
+          {(user?.streak || 0) > 0 && (
+            <Text style={{ color: theme.textMuted, fontSize: 12, textAlign: 'center', marginTop: 12 }}>
+              Último acesso: {user?.lastStreakDate ? new Date(user.lastStreakDate).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'short' }) : '—'}
+            </Text>
           )}
         </View>
+
+        {/* Conquistas */}
+        <View style={s.section}>
+          <Text style={[s.sectionTitle, { color: theme.text }]}>Conquistas</Text>
+          <Text style={{ color: theme.textMuted, fontSize: 13, marginBottom: 16 }}>
+            {user?.achievements?.length || 0} de {(ACHIEVEMENT_DEFS || []).length} desbloqueadas
+          </Text>
+          <View style={s.achieveList}>
+            {(ACHIEVEMENT_DEFS || []).map(def => {
+              const unlocked = user?.achievements?.includes(def.id) ?? false;
+              return (
+                <View key={def.id} style={[s.achieveCard, { backgroundColor: theme.surface, borderColor: unlocked ? theme.primary + '60' : theme.border, opacity: unlocked ? 1 : 0.45 }]}>
+                  <View style={[s.achieveIcon, { backgroundColor: unlocked ? theme.primaryLight : theme.bg }]}>
+                    <Feather name={unlocked ? def.icon : 'lock'} size={24} color={unlocked ? theme.primary : theme.textMuted} />
+                  </View>
+                  <View style={s.achieveInfo}>
+                    <Text style={[s.achieveTitle, { color: theme.text }]}>{def.title}</Text>
+                    <Text style={[s.achieveDesc, { color: theme.textMuted }]}>{def.desc}</Text>
+                  </View>
+                  {unlocked && (
+                    <Feather name="check-circle" size={18} color={theme.primary} style={{ marginLeft: 8 }} />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
       </ScrollView>
 
       {/* Settings Modal */}
@@ -219,21 +214,47 @@ export default function Profile() {
           <Animated.View style={[s.modalContent, { backgroundColor: theme.bg, borderColor: theme.border, transform: [{ translateY: slideAnim }] }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: theme.text }]}>
-                {showEditProfile ? 'Editar Perfil' : 'Configurações'}
+                {showRankSelector ? 'Nível de Dobragem' : showEditProfile ? 'Editar Perfil' : showNotifications ? 'Notificações' : showProPage ? 'Plano Pro' : 'Configurações'}
               </Text>
               <TouchableOpacity onPress={handleCloseSettings} style={s.closeBtn}>
                 <Feather name="x" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
 
-            {showEditProfile ? (
+            {showRankSelector ? (
+              <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                {['Iniciante', 'Intermediário', 'Avançado'].map((rank, i) => {
+                  const rankColors = { 'Iniciante': '#22C55E', 'Intermediário': '#3B82F6', 'Avançado': '#F59E0B' };
+                  const color = rankColors[rank];
+                  const isSelected = user?.rank === rank;
+                  return (
+                    <TouchableOpacity
+                      key={rank}
+                      style={[s.linkRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.border }, isSelected && { backgroundColor: color + '18' }]}
+                      onPress={async () => { await updateRank(rank); setShowRankSelector(false); }}
+                    >
+                      <View>
+                        <Text style={[s.linkText, { color: isSelected ? color : theme.text }]}>{rank}</Text>
+                        {isSelected && <Text style={{ fontSize: 11, color, marginTop: 2 }}>Nível atual</Text>}
+                      </View>
+                      <View style={{ width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: color, backgroundColor: isSelected ? color : 'transparent' }} />
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowRankSelector(false)}>
+                  <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
+                  <Feather name="arrow-left" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+
+            ) : showEditProfile ? (
               <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <TouchableOpacity style={s.linkRow} onPress={handlePickImage}>
                   <Text style={[s.linkText, { color: theme.primary }]}>Escolher nova foto da galeria</Text>
                   <Feather name="image" size={20} color={theme.primary} />
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} 
+                <TouchableOpacity
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
                   onPress={async () => {
                     setUploadingAvatar(true);
                     await removeAvatar();
@@ -244,60 +265,178 @@ export default function Profile() {
                   <Text style={[s.linkText, { color: theme.danger }]}>Remover foto atual</Text>
                   <Feather name="trash-2" size={20} color={theme.danger} />
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} 
+                <TouchableOpacity
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
                   onPress={() => setShowEditProfile(false)}
                 >
                   <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
                   <Feather name="arrow-left" size={20} color={theme.textDim} />
                 </TouchableOpacity>
               </View>
+
+            ) : showNotifications ? (
+              <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                {/* Daily Reminder */}
+                <View style={s.notifRow}>
+                  <View style={s.notifInfo}>
+                    <Text style={[s.notifLabel, { color: theme.text }]}>Lembrete diário</Text>
+                    <Text style={[s.notifDesc, { color: theme.textDim }]}>Hora de praticar origami</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs?.dailyReminder || false}
+                    onValueChange={v => handleSaveNotifPrefs({ ...(notifPrefs || {}), dailyReminder: v })}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                {notifPrefs?.dailyReminder && (
+                  <View style={[s.timeSelector, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                    <Text style={[s.timeSelectorLabel, { color: theme.textDim }]}>Horário do lembrete</Text>
+                    <View style={s.timePills}>
+                      {['07:00', '09:00', '12:00', '18:00', '20:00', '22:00'].map(t => {
+                        const active = (notifPrefs?.reminderTime || '20:00') === t;
+                        return (
+                          <TouchableOpacity
+                            key={t}
+                            onPress={() => handleSaveNotifPrefs({ ...(notifPrefs || {}), reminderTime: t })}
+                            style={[s.timePill, { backgroundColor: active ? theme.primary : theme.bg, borderColor: active ? theme.primary : theme.border }]}
+                          >
+                            <Text style={{ color: active ? '#fff' : theme.textDim, fontSize: 13, fontWeight: '600' }}>{t}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+                {/* Streak Alert */}
+                <View style={[s.notifRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                  <View style={s.notifInfo}>
+                    <Text style={[s.notifLabel, { color: theme.text }]}>Alerta de streak</Text>
+                    <Text style={[s.notifDesc, { color: theme.textDim }]}>Aviso às 20:00 se não praticou hoje</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs?.streakAlert || false}
+                    onValueChange={v => handleSaveNotifPrefs({ ...(notifPrefs || {}), streakAlert: v })}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowNotifications(false)}>
+                  <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
+                  <Feather name="arrow-left" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+
+            ) : showProPage ? (
+              <View style={{ gap: 16 }}>
+                {/* Header */}
+                <View style={[s.proHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Feather name="star" size={32} color={theme.primary} />
+                  <Text style={[s.proHeaderTitle, { color: theme.text }]}>Plano Pro</Text>
+                  <Text style={[s.proHeaderSub, { color: theme.textDim }]}>
+                    {user?.isPro ? 'Você já é um membro Pro!' : 'Acesso completo ao OrigamiApp'}
+                  </Text>
+                </View>
+                {/* Benefits */}
+                <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  {[
+                    { icon: 'award',      text: 'Área exclusiva de professor' },
+                    { icon: 'users',      text: 'Gestão de turmas e alunos' },
+                    { icon: 'share-2',    text: 'Publique PDFs e atividades' },
+                    { icon: 'bookmark',   text: 'Sem limite de origamis salvos' },
+                    { icon: 'headphones', text: 'Suporte prioritário' },
+                  ].map((b, i) => (
+                    <View key={b.text} style={[s.benefitRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                      <View style={[s.benefitIcon, { backgroundColor: theme.primaryLight }]}>
+                        <Feather name={b.icon} size={18} color={theme.primary} />
+                      </View>
+                      <Text style={[s.benefitText, { color: theme.text }]}>{b.text}</Text>
+                      <Feather name="check" size={16} color={theme.primary} />
+                    </View>
+                  ))}
+                </View>
+                {/* CTA */}
+                {!user?.isPro ? (
+                  <TouchableOpacity
+                    style={[s.proBtn, { backgroundColor: theme.primary }]}
+                    onPress={() => { upgradeToPro(true); setShowProPage(false); handleCloseSettings(); }}
+                  >
+                    <Text style={[s.proBtnText, { color: '#fff' }]}>Tornar-se Pro</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[s.proBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.danger }]}
+                    onPress={() => { downgradeFromPro(); setShowProPage(false); handleCloseSettings(); }}
+                  >
+                    <Text style={[s.proBtnText, { color: theme.danger }]}>Cancelar assinatura</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 0 }]} onPress={() => setShowProPage(false)}>
+                  <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
+                  <Feather name="arrow-left" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+
             ) : (
               <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <TouchableOpacity style={s.linkRow} onPress={() => setShowEditProfile(true)}>
                   <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil (Foto)</Text>
                   <Feather name="edit-2" size={20} color={theme.textDim} />
                 </TouchableOpacity>
-                
-                {/* Botão temporário para simular conta Pro/Professor */}
-                {!user?.isPro ? (
-                  <TouchableOpacity 
-                    style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
-                    onPress={() => {
-                      upgradeToPro(true); // true = vira professor também
-                      handleCloseSettings();
-                      alert("Conta atualizada para Pro/Origamista!");
-                    }}
-                  >
-                    <Text style={[s.linkText, { color: theme.primary }]}>Simular Conta Pro/Origamista</Text>
-                    <Feather name="star" size={20} color={theme.primary} />
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity 
-                    style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
-                    onPress={() => {
-                      downgradeFromPro();
-                      handleCloseSettings();
-                      alert("Conta revertida para o plano Gratuito!");
-                    }}
-                  >
-                    <Text style={[s.linkText, { color: theme.danger }]}>Remover Conta Pro/Origamista</Text>
-                    <Feather name="star" size={20} color={theme.danger} />
-                  </TouchableOpacity>
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowRankSelector(true)}>
+                  <View>
+                    <Text style={[s.linkText, { color: theme.text }]}>Nível de Dobragem</Text>
+                    <Text style={{ fontSize: 12, color: ({ 'Iniciante': '#22C55E', 'Intermediário': '#3B82F6', 'Avançado': '#F59E0B' })[user?.rank] || '#22C55E', marginTop: 1 }}>{user?.rank || 'Iniciante'}</Text>
+                  </View>
+                  <Feather name="bar-chart-2" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowNotifications(true)}>
+                  <View>
+                    <Text style={[s.linkText, { color: theme.text }]}>Notificações</Text>
+                    <Text style={{ fontSize: 12, color: theme.textDim, marginTop: 1 }}>
+                      {(notifPrefs?.dailyReminder || notifPrefs?.streakAlert) ? 'Ativas' : 'Desativadas'}
+                    </Text>
+                  </View>
+                  <Feather name="bell" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowProPage(true)}>
+                  <View>
+                    <Text style={[s.linkText, { color: user?.isPro ? theme.primary : theme.text }]}>Assinatura Pro</Text>
+                    <Text style={{ fontSize: 12, color: user?.isPro ? theme.primary : theme.textDim, marginTop: 1 }}>
+                      {user?.isPro ? 'Ativo' : 'Plano gratuito'}
+                    </Text>
+                  </View>
+                  <Feather name="star" size={20} color={user?.isPro ? theme.primary : theme.textDim} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={handleSupportEmail}>
+                  <Text style={[s.linkText, { color: theme.text }]}>Ajuda e Suporte</Text>
+                  <Feather name="mail" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+
+                {/* Dev: simulate Pro */}
+                {(user?.email === 'admin@exemplo.com' || user?.email === 'admin@exemplo.com' || user?.email === 'suporte@exemplo.com') && (
+                  !user?.isPro ? (
+                    <TouchableOpacity
+                      style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                      onPress={() => { upgradeToPro(true); handleCloseSettings(); }}
+                    >
+                      <Text style={[s.linkText, { color: theme.primary }]}>Simular Conta Pro/Origamista</Text>
+                      <Feather name="zap" size={20} color={theme.primary} />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                      onPress={() => { downgradeFromPro(); handleCloseSettings(); }}
+                    >
+                      <Text style={[s.linkText, { color: theme.danger }]}>Remover Conta Pro</Text>
+                      <Feather name="zap" size={20} color={theme.danger} />
+                    </TouchableOpacity>
+                  )
                 )}
 
-                {['Notificações', 'Assinatura Pro', 'Ajuda e Suporte'].map((link, i) => (
-                  <TouchableOpacity key={link} style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                    <Text style={[s.linkText, { color: theme.text }]}>{link}</Text>
-                    <Feather name="chevron-right" size={20} color={theme.textDim} />
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
-                  onPress={() => {
-                    handleCloseSettings();
-                    logout();
-                  }}
+                  onPress={() => { handleCloseSettings(); logout(); }}
                 >
                   <Text style={[s.linkText, { color: theme.danger }]}>Sair da Conta</Text>
                   <Feather name="log-out" size={20} color={theme.danger} />
@@ -363,22 +502,24 @@ const s = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   modalTitle: { fontSize: 20, fontWeight: '800' },
   closeBtn: { padding: 4 },
-  
-  inputObj: {
-    height: 48,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 14,
-  },
-  filesList: { gap: 12 },
-  fileCard: {
-    flexDirection: 'row', alignItems: 'center', padding: 16,
-    borderRadius: 16, borderWidth: 1,
-  },
-  fileIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  fileInfo: { flex: 1, marginLeft: 16 },
-  fileTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
-  fileSize: { fontSize: 12 },
-  fileAction: { padding: 8 }
+
+  // Notifications sub-page
+  notifRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
+  notifInfo: { flex: 1, marginRight: 12 },
+  notifLabel: { fontSize: 15, fontWeight: '600' },
+  notifDesc: { fontSize: 12, marginTop: 2 },
+  timeSelector: { padding: 16 },
+  timeSelectorLabel: { fontSize: 11, fontWeight: '700', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  timePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  timePill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+
+  // Pro sub-page
+  proHeader: { borderRadius: 16, borderWidth: 1, padding: 24, alignItems: 'center', gap: 8 },
+  proHeaderTitle: { fontSize: 22, fontWeight: '800' },
+  proHeaderSub: { fontSize: 14, textAlign: 'center' },
+  benefitRow: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+  benefitIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  benefitText: { flex: 1, fontSize: 15, fontWeight: '600' },
+  proBtn: { borderRadius: 16, padding: 18, alignItems: 'center' },
+  proBtnText: { fontSize: 17, fontWeight: '800' },
 });

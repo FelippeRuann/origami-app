@@ -93,8 +93,16 @@ export class VideoDiscoveryUseCase {
         continue;
       }
 
+      // 1. Comparação de links / ID
       const exists = await this.checkIfExists(vid.id);
       if (exists) {
+        results.push({ id: vid.id, title: vid.title, status: 'skipped' });
+        continue;
+      }
+
+      // 2. Comparação de título / nome (evita re-analisar mesmo se for link diferente)
+      const titleExists = await this.checkIfTitleExists(vid.title);
+      if (titleExists) {
         results.push({ id: vid.id, title: vid.title, status: 'skipped' });
         continue;
       }
@@ -122,6 +130,18 @@ export class VideoDiscoveryUseCase {
         results.push({ id: vid.id, title: vid.title, status: 'saved' });
         savedThisTurn++;
       } else {
+        // Salva nas verificações já processadas e rejeitadas para evitar analisar de novo com a IA e economizar cota
+        try {
+          await addDoc(collection(db, "processed_video_checks"), {
+            videoId: vid.id || "",
+            title: vid.title || "Sem título",
+            description: vid.description || "",
+            status: 'rejected',
+            addedAt: new Date()
+          });
+        } catch (dbErr) {
+          console.warn("Erro ao registrar vídeo rejeitado no histórico:", dbErr);
+        }
         results.push({ id: vid.id, title: vid.title, status: 'rejected' });
       }
     }
@@ -272,9 +292,70 @@ export class VideoDiscoveryUseCase {
   }
 
   static async checkIfExists(videoId) {
-    const q = query(collection(db, "community_videos"), where("videoId", "==", videoId));
+    if (!videoId) return false;
+    
+    // 1. Verifica no banco de vídeos aceitos
+    const q1 = query(collection(db, "community_videos"), where("videoId", "==", videoId));
+    const snap1 = await getDocs(q1);
+    if (!snap1.empty) return true;
+
+    // 2. Verifica no histórico de vídeos processados e rejeitados
+    const q2 = query(collection(db, "processed_video_checks"), where("videoId", "==", videoId));
+    const snap2 = await getDocs(q2);
+    if (!snap2.empty) return true;
+
+    return false;
+  }
+
+  static async checkIfTitleExists(title) {
+    if (!title) return false;
+
+    // 1. Verifica por título em vídeos aceitos
+    const q1 = query(collection(db, "community_videos"), where("title", "==", title));
+    const snap1 = await getDocs(q1);
+    if (!snap1.empty) return true;
+
+    // 2. Verifica por título em vídeos já processados e rejeitados
+    const q2 = query(collection(db, "processed_video_checks"), where("title", "==", title));
+    const snap2 = await getDocs(q2);
+    if (!snap2.empty) return true;
+
+    return false;
+  }
+
+  static async getRandomVideoByDifficulty(rank) {
+    const diffMap = {
+      'Iniciante':     ['easy'],
+      'Intermediário': ['easy', 'intermediate'],
+      'Avançado':      ['easy', 'intermediate', 'hard'],
+    };
+    const levels = diffMap[rank] || ['easy'];
+    const level = levels[Math.floor(Math.random() * levels.length)];
+
+    try {
+      const q = query(collection(db, "community_videos"), where("difficulty", "==", level), limit(50));
+      const snap = await getDocs(q);
+      const docs = snap.empty ? null : snap.docs;
+
+      if (!docs) {
+        const fallback = await getDocs(query(collection(db, "community_videos"), limit(20)));
+        if (fallback.empty) return null;
+        const d = fallback.docs;
+        const r = d[Math.floor(Math.random() * d.length)];
+        return { id: r.id, ...r.data() };
+      }
+
+      const r = docs[Math.floor(Math.random() * docs.length)];
+      return { id: r.id, ...r.data() };
+    } catch {
+      return null;
+    }
+  }
+
+  static async getAllVideos() {
+    const q = query(collection(db, "community_videos"), orderBy("addedAt", "desc"));
     const snap = await getDocs(q);
-    return !snap.empty;
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
   static async getCommunityVideos(limitCount = 20, lastDoc = null) {

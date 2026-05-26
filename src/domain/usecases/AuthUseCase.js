@@ -40,6 +40,10 @@ export class AuthUseCase {
     return await UserRepository.updateUserSession({ photo: url });
   }
 
+  static async updateUserSession(updates) {
+    return await UserRepository.updateUserSession(updates);
+  }
+
   static async updateWatchedCount() {
     const user = await UserRepository.getSession();
     if(user) {

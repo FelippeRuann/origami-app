@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Animated, ScrollView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Animated, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 
-const { width } = Dimensions.get('window');
-
 export default function Layout({ screens, currentRoute, setCurrentRoute }) {
   const { user, theme, isFullscreenVideo } = useApp();
-  
+
   const scrollViewRef = useRef(null);
-  const isProgrammaticScroll = useRef(false);
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const isTabPress = useRef(false);
+  const lastScreenWidth = useRef(null);
   const [windowDims, setWindowDims] = useState(Dimensions.get('window'));
 
   useEffect(() => {
@@ -19,7 +19,6 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
     return () => subscription?.remove();
   }, []);
 
-  const isLandscape = windowDims.width > windowDims.height;
   const screenWidth = windowDims.width;
 
   const tabs = [
@@ -27,37 +26,36 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
     { id: 'Library', label: 'Library', icon: 'book' },
   ];
 
-  if (user?.isPro || user?.isTeacher) {
+  if (user?.isPro) {
     tabs.push({ id: 'TeacherPro', label: 'Pro', icon: 'award' });
   }
 
   tabs.push({ id: 'Profile', label: 'Profile', icon: 'user' });
 
   useEffect(() => {
-    // Quando mudamos de rota ou a largura da tela muda, precisamos ajustar o scroll
     const index = tabs.findIndex(t => t.id === currentRoute);
-    if (index !== -1 && scrollViewRef.current && screenWidth > 0) {
-      if (isProgrammaticScroll.current) {
-        scrollViewRef.current.scrollTo({ x: index * screenWidth, animated: true });
-        const timer = setTimeout(() => {
-          isProgrammaticScroll.current = false;
-        }, 400);
-        return () => clearTimeout(timer);
-      } else {
-        // Use timeout para garantir que o layout renderizou o novo tamanho antes do scroll
-        setTimeout(() => {
-          if (scrollViewRef.current) {
-             scrollViewRef.current.scrollTo({ x: index * screenWidth, animated: false });
-          }
-        }, 50);
-      }
+    if (index === -1 || !scrollViewRef.current || screenWidth <= 0) return;
+
+    if (isTabPress.current) {
+      // Tab button was pressed: animate scroll to the new screen
+      scrollViewRef.current.scrollTo({ x: index * screenWidth, animated: true });
+      const timer = setTimeout(() => { isTabPress.current = false; }, 400);
+      return () => clearTimeout(timer);
     }
+
+    // Screen rotated: re-snap to current screen without animation
+    if (lastScreenWidth.current !== null && lastScreenWidth.current !== screenWidth) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: false });
+      }, 50);
+    }
+    lastScreenWidth.current = screenWidth;
   }, [currentRoute, screenWidth]);
 
   const handleMomentumScrollEnd = (e) => {
-    isProgrammaticScroll.current = false;
-    const contentOffsetX = e.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / screenWidth);
+    isTabPress.current = false;
+    const offsetX = e.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / screenWidth);
     if (tabs[index] && tabs[index].id !== currentRoute) {
       setCurrentRoute(tabs[index].id);
     }
@@ -65,22 +63,25 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
 
   const handleTabPress = (tabId) => {
     if (tabId !== currentRoute) {
-      isProgrammaticScroll.current = true;
+      isTabPress.current = true;
       setCurrentRoute(tabId);
     }
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      {/* Main Content */}
       <View style={styles.content}>
-        <ScrollView
+        <Animated.ScrollView
           ref={scrollViewRef}
           horizontal
           pagingEnabled
           scrollEnabled={!isFullscreenVideo}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleMomentumScrollEnd}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+            { useNativeDriver: true }
+          )}
           scrollEventThrottle={16}
           bounces={false}
           snapToInterval={screenWidth}
@@ -89,21 +90,26 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
           keyboardShouldPersistTaps="handled"
         >
           {tabs.map((tab) => (
-            <View 
-              style={{ width: screenWidth, flex: 1 }} 
-              key={tab.id}
-            >
+            <View style={{ width: screenWidth, flex: 1 }} key={tab.id}>
               {screens[tab.id] ? React.cloneElement(screens[tab.id]) : null}
             </View>
           ))}
-        </ScrollView>
+        </Animated.ScrollView>
       </View>
 
-      {/* Bottom Tab Bar (Hidden in fullscreen video) */}
       {!isFullscreenVideo && (
         <View style={[styles.tabBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const isActive = currentRoute === tab.id;
+
+            // Animate the icon background pill in real time as user swipes
+            const inputRange = tabs.map((_, i) => i * screenWidth);
+            const bgOpacity = scrollX.interpolate({
+              inputRange,
+              outputRange: tabs.map((_, i) => (i === index ? 1 : 0)),
+              extrapolate: 'clamp',
+            });
+
             return (
               <TouchableOpacity
                 key={tab.id}
@@ -111,12 +117,19 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
                 onPress={() => handleTabPress(tab.id)}
                 activeOpacity={0.8}
               >
-                <View style={[styles.iconWrap, isActive && { backgroundColor: theme.primaryLight }]}>
+                <View style={styles.iconWrapOuter}>
+                  <Animated.View
+                    style={[
+                      StyleSheet.absoluteFill,
+                      styles.iconWrapBg,
+                      { backgroundColor: theme.primaryLight, opacity: bgOpacity },
+                    ]}
+                  />
                   <Feather name={tab.icon} size={22} color={isActive ? theme.primary : theme.textDim} />
                 </View>
                 <Text style={[
-                  styles.tabLabel, 
-                  { color: isActive ? theme.primary : theme.textDim, fontWeight: isActive ? '800' : '600' }
+                  styles.tabLabel,
+                  { color: isActive ? theme.primary : theme.textDim, fontWeight: isActive ? '800' : '600' },
                 ]}>
                   {tab.label}
                 </Text>
@@ -132,22 +145,27 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1 },
-  tabBar: { 
-    height: 65, 
-    flexDirection: 'row', 
-    borderTopWidth: 1, 
+  tabBar: {
+    height: 65,
+    flexDirection: 'row',
+    borderTopWidth: 1,
     paddingBottom: 5,
     paddingTop: 5,
     justifyContent: 'space-around',
-    alignItems: 'center'
+    alignItems: 'center',
   },
   tabItem: { alignItems: 'center', justifyContent: 'center', width: 70 },
-  iconWrap: {
-    width: 40, height: 32,
+  iconWrapOuter: {
+    width: 40,
+    height: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4
+    marginBottom: 4,
+    overflow: 'hidden',
   },
-  tabLabel: { fontSize: 10, letterSpacing: 0.5 }
+  iconWrapBg: {
+    borderRadius: 16,
+  },
+  tabLabel: { fontSize: 10, letterSpacing: 0.5 },
 });

@@ -14,4 +14,11 @@ export class OrigamiProject {
     this.date = date;
     this.data = data; // conteúdo do arquivo .fold, se aplicável
   }
+
+  changeTitle(newTitle) {
+    if (!newTitle || newTitle.trim() === '') {
+      throw new Error("O título do origami é obrigatório.");
+    }
+    this.title = newTitle.trim();
+  }
 }
