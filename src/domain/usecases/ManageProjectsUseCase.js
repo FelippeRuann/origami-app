@@ -81,6 +81,10 @@ export class ManageProjectsUseCase {
     return await OrigamiProjectRepository.getAll(optionalUserId);
   }
 
+  static async syncProjects(userId) {
+    return await OrigamiProjectRepository.syncWithCloud(userId);
+  }
+
   static async removeProject(id, userId = null) {
     return await OrigamiProjectRepository.delete(id, userId);
   }

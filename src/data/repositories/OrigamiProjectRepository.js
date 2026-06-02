@@ -49,11 +49,26 @@ export class OrigamiProjectRepository {
 
   static async syncWithCloud(userId) {
     try {
-      const remoteProjects = await RemoteProjectDataSource.getAll(userId);
-      for (const p of remoteProjects) {
-        await LocalProjectDataSource.save(userId, p);
-      }
-      // Retorna a lista atualizada para que o Contexto possa atualizar o estado
+      const [remoteProjects, localProjects] = await Promise.all([
+        RemoteProjectDataSource.getAll(userId),
+        LocalProjectDataSource.getAll(userId),
+      ]);
+
+      const remoteIds = new Set(remoteProjects.map(p => p.id));
+      const localIds  = new Set(localProjects.map(p => p.id));
+
+      // Sobe para o Firestore os itens que só existem localmente
+      const uploadPromises = localProjects
+        .filter(p => !remoteIds.has(p.id))
+        .map(p => RemoteProjectDataSource.save(userId, p).catch(() => {}));
+
+      // Baixa para o local os itens que só existem na nuvem
+      const downloadPromises = remoteProjects
+        .filter(p => !localIds.has(p.id))
+        .map(p => LocalProjectDataSource.save(userId, p).catch(() => {}));
+
+      await Promise.all([...uploadPromises, ...downloadPromises]);
+
       return await LocalProjectDataSource.getAll(userId);
     } catch (e) {
       console.warn("Erro ao sincronizar projetos com a nuvem:", e);

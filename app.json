@@ -15,10 +15,16 @@
       },
       "navigationBar": {
         "visible": "sticky-immersive"
-      }
+      },
+      "package": "com.felppitos.origamiapp"
     },
     "plugins": [
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "65519f01-55b9-4ca7-9ed5-ac8cefa93c4b"
+      }
+    }
   }
 }

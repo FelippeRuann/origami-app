@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Animated, ScrollView } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Dimensions, Animated, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 
@@ -110,6 +110,12 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
               extrapolate: 'clamp',
             });
 
+            const inactiveOpacity = scrollX.interpolate({
+              inputRange,
+              outputRange: tabs.map((_, i) => (i === index ? 0 : 1)),
+              extrapolate: 'clamp',
+            });
+
             return (
               <TouchableOpacity
                 key={tab.id}
@@ -118,6 +124,7 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
                 activeOpacity={0.8}
               >
                 <View style={styles.iconWrapOuter}>
+                  {/* Oval de fundo — anima com scrollX */}
                   <Animated.View
                     style={[
                       StyleSheet.absoluteFill,
@@ -125,14 +132,23 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
                       { backgroundColor: theme.primaryLight, opacity: bgOpacity },
                     ]}
                   />
-                  <Feather name={tab.icon} size={22} color={isActive ? theme.primary : theme.textDim} />
+                  {/* Ícone inativo — desaparece junto com o oval */}
+                  <Animated.View style={[StyleSheet.absoluteFill, styles.iconCenter, { opacity: inactiveOpacity }]}>
+                    <Feather name={tab.icon} size={22} color={theme.textDim} />
+                  </Animated.View>
+                  {/* Ícone ativo — aparece junto com o oval */}
+                  <Animated.View style={[StyleSheet.absoluteFill, styles.iconCenter, { opacity: bgOpacity }]}>
+                    <Feather name={tab.icon} size={22} color={theme.primary} />
+                  </Animated.View>
                 </View>
-                <Text style={[
-                  styles.tabLabel,
-                  { color: isActive ? theme.primary : theme.textDim, fontWeight: isActive ? '800' : '600' },
-                ]}>
-                  {tab.label}
-                </Text>
+                <View style={styles.labelWrap}>
+                  <Animated.Text style={[styles.tabLabel, { color: theme.textDim, fontWeight: '600', opacity: inactiveOpacity }]}>
+                    {tab.label}
+                  </Animated.Text>
+                  <Animated.Text style={[styles.tabLabel, { color: theme.primary, fontWeight: '800', opacity: bgOpacity, position: 'absolute' }]}>
+                    {tab.label}
+                  </Animated.Text>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -167,5 +183,10 @@ const styles = StyleSheet.create({
   iconWrapBg: {
     borderRadius: 16,
   },
-  tabLabel: { fontSize: 10, letterSpacing: 0.5 },
+  iconCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabLabel: { fontSize: 10, letterSpacing: 0.5, textAlign: 'center' },
+  labelWrap: { height: 13, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Alert, ActivityIndicator, Platform, TextInput, Image, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Alert, ActivityIndicator, Platform, TextInput, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
@@ -14,9 +14,8 @@ const { width } = Dimensions.get('window');
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://uploadpdf-ulb2s3fzra-uc.a.run.app';
 
 export default function Library() {
-  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle } = useApp();
+  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle, navigateToPro } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [convertedFiles, setConvertedFiles] = useState([]);
   
@@ -63,13 +62,12 @@ export default function Library() {
     return combined;
   }, [importedProjects, savedOrigamis, isInitialLoading]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    // O sync real é passivo no AppContext, mas aqui forçamos a interface a brilhar
-    setTimeout(() => setRefreshing(false), 1200);
-  }, []);
-
   const [inviteCode, setInviteCode] = useState('');
+
+  const formatInviteCode = (text) => {
+    const clean = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return clean.length > 4 ? `${clean.slice(0, 4)}-${clean.slice(4)}` : clean;
+  };
 
   // States do Flow do YouTube (Cadastro Principal Atividade 4)
   const [showYoutubeForm, setShowYoutubeForm] = useState(false);
@@ -141,6 +139,15 @@ export default function Library() {
       Alert.alert('Campos vazios', 'Preencha o título e o link do YouTube.');
       return;
     }
+    const ytCount = allProjects.filter(p => p.type === 'youtube').length;
+    if (!user?.isPro && ytCount >= 10) {
+      Alert.alert(
+        'Limite atingido',
+        'O plano gratuito permite até 10 vídeos na biblioteca. Faça upgrade para o Pro para salvar mais.',
+        [{ text: 'Cancelar', style: 'cancel' }, { text: 'Ver Plano Pro', onPress: navigateToPro }]
+      );
+      return;
+    }
     const extractVideoId = (url) => {
       const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|v\/))([^&?]*)/);
       return match ? match[1] : null;
@@ -164,6 +171,15 @@ export default function Library() {
   };
 
   const handleConvertPDF = async () => {
+    const foldCount = allProjects.filter(p => p.type === 'fold').length;
+    if (!user?.isPro && foldCount >= 3) {
+      Alert.alert(
+        'Limite de PDFs atingido',
+        'O plano gratuito permite até 3 arquivos .fold na biblioteca. Faça upgrade para o Pro para adicionar mais.',
+        [{ text: 'Cancelar', style: 'cancel' }, { text: 'Ver Plano Pro', onPress: navigateToPro }]
+      );
+      return;
+    }
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
@@ -174,8 +190,18 @@ export default function Library() {
         return;
       }
 
-      setIsConverting(true);
       const file = result.assets[0];
+
+      if (!user?.isPro && file.size > 10 * 1024 * 1024) {
+        Alert.alert(
+          'Arquivo muito grande',
+          'O plano gratuito aceita PDFs de até 10 MB. Faça upgrade para o Pro para enviar arquivos maiores.',
+          [{ text: 'Cancelar', style: 'cancel' }, { text: 'Ver Plano Pro', onPress: navigateToPro }]
+        );
+        return;
+      }
+
+      setIsConverting(true);
 
       const formData = new FormData();
       formData.append('pdf', {
@@ -459,14 +485,6 @@ export default function Library() {
         style={s.scroll} 
         contentContainerStyle={s.scrollContent} 
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
-            tintColor={theme.primary}
-            colors={[theme.primary]}
-          />
-        }
       >
 
         {/* BLOCO 1: YOUTUBE E IMPORTAÇÃO */}
@@ -640,7 +658,8 @@ export default function Library() {
             placeholderTextColor={theme.textDim}
             value={inviteCode}
             autoCapitalize="characters"
-            onChangeText={setInviteCode}
+            maxLength={9}
+            onChangeText={(t) => setInviteCode(formatInviteCode(t))}
           />
           <TouchableOpacity
             style={{ backgroundColor: theme.primary, paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}

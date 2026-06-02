@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions, Image, Alert } from 'react-native';
 import { Feather, AntDesign } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
+import { haptic } from '../utils/haptics';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { YouTubeService } from '../domain/services/YouTubeService';
 import { VideoDiscoveryUseCase } from '../domain/usecases/VideoDiscoveryUseCase';
@@ -51,26 +52,28 @@ function HeroBanner({ theme, onPlayRandom }) {
  * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados (YouTube).
  */
 function RecommendedCard({ item, theme, onPlay }) {
-  const { addImportedProject, savedOrigamis, importedProjects } = useApp();
-  const [saved, setSaved] = useState(() => {
-    const inSaved = (savedOrigamis || []).some(o => (o.videoId || o.youtubeId) === item.youtubeId);
-    const inImported = (importedProjects || []).some(p => p.videoId === item.youtubeId);
-    return inSaved || inImported;
-  });
+  const { addImportedProject, removeImportedProject, unsaveOrigami, savedOrigamis, importedProjects, hapticsEnabled } = useApp();
 
-  const handleSaveToLibrary = () => {
-    const newYoutubeItem = {
-      id: Date.now().toString(),
-      title: item.title,
-      url: `https://youtube.com/watch?v=${item.youtubeId}`,
-      videoId: item.youtubeId,
-      type: 'youtube',
-      progress: '0%',
-      date: 'Agora'
-    };
-    addImportedProject(newYoutubeItem);
-    setSaved(true);
-    Alert.alert('Salvo', 'Vídeo do YouTube adicionado à sua Biblioteca!');
+  const savedEntry = (importedProjects || []).find(p => p.videoId === item.youtubeId);
+  const savedFav   = (savedOrigamis   || []).find(o => (o.videoId || o.youtubeId) === item.youtubeId);
+  const saved = !!(savedEntry || savedFav);
+
+  const handleToggleLibrary = () => {
+    haptic.light(hapticsEnabled);
+    if (saved) {
+      if (savedEntry) removeImportedProject(savedEntry.id);
+      if (savedFav)   unsaveOrigami(savedFav.id || savedFav.videoId);
+    } else {
+      addImportedProject({
+        id: Date.now().toString(),
+        title: item.title,
+        url: `https://youtube.com/watch?v=${item.youtubeId}`,
+        videoId: item.youtubeId,
+        type: 'youtube',
+        progress: '0%',
+        date: 'Agora',
+      });
+    }
   };
 
   return (
@@ -84,7 +87,7 @@ function RecommendedCard({ item, theme, onPlay }) {
         <View style={[s.diffBadge, { left: 12, borderColor: item.difficultyColor }]}>
           <Text style={[s.diffText, { color: item.difficultyColor }]}>{item.difficulty}</Text>
         </View>
-        <TouchableOpacity style={s.likeBtn} onPress={handleSaveToLibrary}>
+        <TouchableOpacity style={s.likeBtn} onPress={handleToggleLibrary}>
           <AntDesign name="heart" size={16} color={saved ? '#ef4444' : '#fff'} />
         </TouchableOpacity>
         <Feather name="play-circle" size={32} color="#fff" style={{ position: 'absolute', opacity: 0.8 }} />

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
+import { haptic } from '../utils/haptics';
 
 const { width } = Dimensions.get('window');
 
@@ -41,12 +42,13 @@ const PROJETOS = {
 };
 
 export default function DetailScreen() {
-  const { currentDetail, setCurrentDetail, theme, saveOrigami, savedOrigamis, setCurrentRoute, setFoldingOrigami } = useApp();
+  const { currentDetail, setCurrentDetail, theme, saveOrigami, savedOrigamis, setCurrentRoute, setFoldingOrigami, hapticsEnabled } = useApp();
   const projeto = PROJETOS[currentDetail] || PROJETOS['1'];
   
   const isSaved = savedOrigamis.some(o => o.id === currentDetail);
 
   const handleSave = () => {
+    haptic.light(hapticsEnabled);
     saveOrigami({ id: currentDetail, ...projeto });
   };
 

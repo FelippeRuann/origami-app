@@ -14,6 +14,8 @@ Notifications.setNotificationHandler({
 // Clean Architecture - Importando Casos de Uso e Repositórios
 import { AuthUseCase } from '../domain/usecases/AuthUseCase';
 import { ManageProjectsUseCase } from '../domain/usecases/ManageProjectsUseCase';
+import { LocalProjectDataSource } from '../data/datasources/LocalProjectDataSource';
+import { RemoteProjectDataSource } from '../data/datasources/RemoteProjectDataSource';
 import { storage } from '../firebase';
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 
@@ -43,6 +45,8 @@ export function AppProvider({ children }) {
 
   // App state
   const [savedOrigamis, setSavedOrigamis] = useState([]);
+  const [pendingProOpen, setPendingProOpen] = useState(false);
+  const [resetOobCode, setResetOobCode] = useState(null);
   const [projects, setProjects] = useState([
     { id: '1', title: 'Dragão Imperial', step: 14, totalSteps: 22, icon: 'github', progress: 14 / 22, bg: '#1A2A3A' },
     { id: '2', title: 'Lótus Sagrada',   step: 8,  totalSteps: 10, icon: 'sun', progress: 8 / 10,  bg: '#2A1A2A' },
@@ -73,10 +77,6 @@ export function AppProvider({ children }) {
           setSavedOrigamis(JSON.parse(cached));
         }
 
-        // Carrega projetos locais também
-        const localProjects = await ManageProjectsUseCase.getProjects(firebaseUser.uid);
-        setImportedProjects(localProjects);
-
         // 2. Busca sessão completa (Rank, etc)
         const activeUser = await AuthUseCase.checkActiveSession();
         if (activeUser) {
@@ -86,21 +86,8 @@ export function AppProvider({ children }) {
           const cachedNotifPrefs = await AsyncStorage.getItem(`@notif_prefs_${firebaseUser.uid}`);
           if (cachedNotifPrefs) setNotifPrefs(JSON.parse(cachedNotifPrefs));
           else if (activeUser.notificationPrefs) setNotifPrefs(activeUser.notificationPrefs);
-          
-          // 3. Sync em Background com o Firestore
-          try {
-            const { collection, getDocs, query } = require('firebase/firestore');
-            const { db } = require('../firebase');
-            const q = query(collection(db, 'users', activeUser.id, 'favorites'));
-            const snap = await getDocs(q);
-            const favsFromCloud = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            
-            // Se mudou ou chegou coisa nova, atualiza
-            setSavedOrigamis(favsFromCloud);
-            await AsyncStorage.setItem(`@favorites_${activeUser.id}`, JSON.stringify(favsFromCloud));
-          } catch (cloudErr) {
-            console.log("Firebase sync aguardando conexão... (usando cache local)");
-          }
+          const cachedHaptics = await AsyncStorage.getItem(`@haptics_${firebaseUser.uid}`);
+          if (cachedHaptics !== null) setHapticsEnabled(JSON.parse(cachedHaptics));
         }
       } else {
         // Logout Real ou apenas ainda não logou no boot
@@ -165,7 +152,7 @@ export function AppProvider({ children }) {
       return { success: true };
     } catch (error) {
       console.error("Erro no login:", error);
-      return { success: false, error: "Usuário não encontrado." };
+      return { success: false, error: error.code || error.message || "Usuário não encontrado." };
     }
   };
 
@@ -223,7 +210,19 @@ export function AppProvider({ children }) {
   };
 
   const resetPassword = async (email) => {
-    return { success: true, message: "Funcionalidade de e-mail mockada." };
+    try {
+      const { sendPasswordResetEmail } = require('firebase/auth');
+      const { auth } = require('../firebase');
+      await sendPasswordResetEmail(auth, email.trim());
+      return { success: true, message: 'E-mail de recuperação enviado! Verifique sua caixa de entrada.' };
+    } catch (error) {
+      const msgs = {
+        'auth/user-not-found': 'Nenhuma conta encontrada com este e-mail.',
+        'auth/invalid-email': 'E-mail inválido.',
+        'auth/too-many-requests': 'Muitas tentativas. Tente novamente mais tarde.',
+      };
+      return { success: false, error: msgs[error.code] || 'Não foi possível enviar o e-mail de recuperação.' };
+    }
   };
 
   const updateAvatar = async (imageFile) => {
@@ -294,11 +293,17 @@ export function AppProvider({ children }) {
     AsyncStorage.setItem('@dark_mode', nextTheme.toString());
   };
 
+  const navigateToPro = () => {
+    setCurrentRoute('Profile');
+    setPendingProOpen(true);
+  };
+
   const saveOrigami = async (origami) => {
     if (!user) return false;
     
-    if (!user?.isPro && savedOrigamis.length >= 7) {
-      alert("Limite atingido! Assine o Pro para salvar mais origamis.");
+    const totalVideos = (savedOrigamis || []).length + (importedProjects || []).filter(p => p.type === 'youtube').length;
+    if (!user?.isPro && totalVideos >= 10) {
+      navigateToPro();
       return false;
     }
     
@@ -372,12 +377,20 @@ export function AppProvider({ children }) {
   // --- CRUD DE PROJETOS ---
   
   const addImportedProject = async (newProject) => {
-    // Adapter para código legado da view
     const userId = user?.id || 'guest';
-    if(newProject.type === 'youtube') {
-       await ManageProjectsUseCase.addYoutubeProject(newProject.title, newProject.url, newProject.videoId, userId);
+    if (newProject.type === 'youtube') {
+      const alreadyExists = (importedProjects || []).some(p => p.videoId === newProject.videoId) ||
+                            (savedOrigamis   || []).some(o => (o.videoId || o.youtubeId) === newProject.videoId);
+      if (alreadyExists) return false;
+
+      const totalVideos = (savedOrigamis || []).length + (importedProjects || []).filter(p => p.type === 'youtube').length;
+      if (!user?.isPro && totalVideos >= 10) {
+        navigateToPro();
+        return false;
+      }
+      await ManageProjectsUseCase.addYoutubeProject(newProject.title, newProject.url, newProject.videoId, userId);
     } else {
-       await ManageProjectsUseCase.addFoldProject(newProject.title, newProject.data || newProject, userId);
+      await ManageProjectsUseCase.addFoldProject(newProject.title, newProject.data || newProject, userId);
     }
     setImportedProjects(await ManageProjectsUseCase.getProjects(userId));
   };
@@ -405,7 +418,7 @@ export function AppProvider({ children }) {
       return p;
     });
     setImportedProjects(updatedList);
-    await AsyncStorage.setItem('@imported_projects', JSON.stringify(updatedList));
+    if (user?.id) await AsyncStorage.setItem(`@origami_projects_${user.id}`, JSON.stringify(updatedList));
 
     if (markAsWatched && user) {
       const newCount = (user.watchedVideos || 0) + 1;
@@ -430,17 +443,25 @@ export function AppProvider({ children }) {
   const [studentSubscriptions, setStudentSubscriptions] = useState([]);
   const [isFullscreenVideo, setIsFullscreenVideo] = useState(false);
   const [notifPrefs, setNotifPrefs] = useState({ dailyReminder: false, reminderTime: '20:00', streakAlert: false });
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [newAchievement, setNewAchievement] = useState(null);
 
-  const _loadedUid    = useRef(null);
-  const _unsubStudents  = useRef(null);
+  const _loadedUid       = useRef(null);
+  const _unsubStudents   = useRef(null);
   const _unsubActivities = useRef(null);
+  const _unsubProjects   = useRef(null);
+  const _unsubFavorites  = useRef(null);
 
   useEffect(() => {
     const cleanup = () => {
       _unsubStudents.current?.();
       _unsubActivities.current?.();
-      _unsubStudents.current  = null;
+      _unsubProjects.current?.();
+      _unsubFavorites.current?.();
+      _unsubStudents.current   = null;
       _unsubActivities.current = null;
+      _unsubProjects.current   = null;
+      _unsubFavorites.current  = null;
     };
 
     if (!user?.id) { cleanup(); _loadedUid.current = null; return; }
@@ -451,8 +472,68 @@ export function AppProvider({ children }) {
     const userId = user.id;
 
     const setup = async () => {
-      const { collection, onSnapshot, getDocs, query, orderBy } = await import('firebase/firestore');
+      const { collection, onSnapshot, getDocs, doc, setDoc, query, orderBy } = await import('firebase/firestore');
       const { db } = await import('../firebase');
+
+      // --- Projetos da Biblioteca (importedProjects) ---
+      // 1. Exibe cache local imediatamente
+      const localProjects = await LocalProjectDataSource.getAll(userId).catch(() => []);
+      if (localProjects.length > 0) setImportedProjects(localProjects);
+
+      // 2. Sobe para o Firestore os projetos que existem só localmente (ex: salvos offline)
+      RemoteProjectDataSource.getAll(userId)
+        .then(remote => {
+          const remoteIds = new Set(remote.map(p => p.id));
+          return Promise.all(
+            localProjects
+              .filter(p => !remoteIds.has(p.id))
+              .map(p => RemoteProjectDataSource.save(userId, p).catch(() => {}))
+          );
+        })
+        .catch(() => {});
+
+      // 3. Listener em tempo real — qualquer mudança na nuvem reflete aqui
+      _unsubProjects.current = onSnapshot(
+        collection(db, 'users', userId, 'projects'),
+        snap => {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setImportedProjects(list);
+          AsyncStorage.setItem(`@origami_projects_${userId}`, JSON.stringify(list));
+        },
+        err => console.warn('[Projects] snapshot error:', err)
+      );
+
+      // --- Favoritos do Discover (savedOrigamis) ---
+      // 1. Exibe cache local imediatamente
+      const cachedFavs = await AsyncStorage.getItem(`@favorites_${userId}`);
+      const localFavs = cachedFavs ? JSON.parse(cachedFavs) : [];
+      if (localFavs.length > 0) setSavedOrigamis(localFavs);
+
+      // 2. Sobe para o Firestore os favoritos que existem só localmente
+      getDocs(collection(db, 'users', userId, 'favorites'))
+        .then(snap => {
+          const remoteIds = new Set(snap.docs.map(d => d.id));
+          return Promise.all(
+            localFavs
+              .filter(f => !remoteIds.has(f.id?.toString()))
+              .map(f => setDoc(
+                doc(db, 'users', userId, 'favorites', f.id.toString()),
+                { ...f, savedAt: f.savedAt || new Date().toISOString() }
+              ).catch(() => {}))
+          );
+        })
+        .catch(() => {});
+
+      // 3. Listener em tempo real
+      _unsubFavorites.current = onSnapshot(
+        collection(db, 'users', userId, 'favorites'),
+        snap => {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setSavedOrigamis(list);
+          AsyncStorage.setItem(`@favorites_${userId}`, JSON.stringify(list));
+        },
+        err => console.warn('[Favorites] snapshot error:', err)
+      );
 
       if (user.isTeacher) {
         // Gera código do professor se necessário
@@ -579,8 +660,10 @@ export function AppProvider({ children }) {
     if (!user) return { success: false, error: 'Faça login primeiro para entrar na turma.' };
     const studentId = user.id;
 
-    const trimmedCode = code.trim().toUpperCase();
-    if (trimmedCode.length < 3) return { success: false, error: 'Código muito curto.' };
+    // Normalize: strip non-alphanumeric, then format as XXXX-XXXX
+    const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (clean.length < 8) return { success: false, error: 'Código inválido. Digite os 8 caracteres (ex: A3F2-B19C).' };
+    const trimmedCode = `${clean.slice(0, 4)}-${clean.slice(4, 8)}`;
 
     try {
       const { collection, getDocs, query, where, doc, setDoc } = await import('firebase/firestore');
@@ -825,6 +908,9 @@ export function AppProvider({ children }) {
 
     if (newlyUnlocked.length === 0) return;
 
+    const firstDef = ACHIEVEMENT_DEFS.find(def => newlyUnlocked.includes(def.id));
+    if (firstDef) setNewAchievement(firstDef);
+
     const updatedAchievements = [...current, ...newlyUnlocked];
 
     // Progressão automática de rank
@@ -858,6 +944,11 @@ export function AppProvider({ children }) {
     } catch (e) {
       console.warn("Rank salvo localmente:", e);
     }
+  };
+
+  const updateHapticsEnabled = async (val) => {
+    setHapticsEnabled(val);
+    if (user) await AsyncStorage.setItem(`@haptics_${user.id}`, JSON.stringify(val));
   };
 
   const updateNotifPrefs = async (newPrefs) => {
@@ -956,7 +1047,11 @@ export function AppProvider({ children }) {
       projects, documents, activities, classActivities, teacherCode, studentSubscriptions, publishActivity, joinClass,
       upgradeToPro, downgradeFromPro, managedStudents, addStudent, removeStudent, updateYoutubeVideoTitle,
       updateStreak, unlockAchievement, checkAchievements, ACHIEVEMENT_DEFS, updateRank,
-      notifPrefs, updateNotifPrefs
+      notifPrefs, updateNotifPrefs,
+      hapticsEnabled, updateHapticsEnabled,
+      newAchievement, setNewAchievement,
+      pendingProOpen, setPendingProOpen, navigateToPro,
+      resetOobCode, setResetOobCode
     }}>
       {children}
     </AppContext.Provider>

@@ -6,6 +6,7 @@ import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { useApp } from '../context/AppContext';
+import ResetPasswordScreen from './ResetPasswordScreen';
 
 let GoogleSignin = null;
 
@@ -54,9 +55,10 @@ export default function Auth() {
   // Estados de controle de interface
   const [loading, setLoading] = useState(false); // Mostra "Carregando..." nos botões
   const [showPassword, setShowPassword] = useState(false); // Alterna a visibilidade da senha (olhinho)
-  
+  const [pastedLink, setPastedLink] = useState('');
+
   // Puxando funções do nosso contexto global
-  const { login, loginWithGoogleToken, register, theme, resetPassword } = useApp();
+  const { login, loginWithGoogleToken, register, theme, resetPassword, resetOobCode, setResetOobCode } = useApp();
 
   const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -165,13 +167,18 @@ export default function Auth() {
     }
     const result = await resetPassword(email);
     if (result.success) {
-      Alert.alert("Sucesso", "E-mail de redefinição enviado! Verifique sua caixa de entrada.");
+      setStep('reset-sent');
     } else {
       Alert.alert("Erro", "Erro ao redefinir senha: " + result.error);
     }
   };
 
   // --- RENDERIZAÇÃO DAS TELAS ---
+
+  // 0. Se há um oobCode (deep link ou link colado), mostra a tela de redefinição
+  if (resetOobCode) {
+    return <ResetPasswordScreen oobCode={resetOobCode} onSuccess={() => setResetOobCode(null)} />;
+  }
 
   // 1. TELA INICIAL (Boas-vindas)
   if (step === 'initial') {
@@ -316,7 +323,47 @@ export default function Auth() {
     );
   }
 
-  // 3. TELA DE CADASTRO (Se não for 'initial' nem 'login', cai aqui)
+  // 3. TELA ENVIADO (Após solicitar reset de senha)
+  if (step === 'reset-sent') {
+    return (
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: theme.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 28 }}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: `${theme.primary}22`, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 24 }}>
+            <Feather name="mail" size={36} color={theme.primary} />
+          </View>
+          <Text style={{ fontSize: 26, fontWeight: '800', color: theme.text, textAlign: 'center', marginBottom: 8 }}>E-mail enviado!</Text>
+          <Text style={{ fontSize: 14, color: theme.textMuted, textAlign: 'center', marginBottom: 32, lineHeight: 20 }}>
+            Verifique sua caixa de entrada e clique no link para redefinir a senha.{'\n\n'}
+            Ou cole o link do e-mail abaixo para continuar direto no app:
+          </Text>
+          <View style={[styles.inputWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+            <Feather name="link" size={16} color={theme.textDim} />
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="Cole o link do e-mail aqui..."
+              placeholderTextColor={theme.textDim}
+              value={pastedLink}
+              onChangeText={(text) => {
+                setPastedLink(text);
+                const m = text.match(/[?&]oobCode=([^&\s]+)/);
+                if (m) setResetOobCode(decodeURIComponent(m[1]));
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <TouchableOpacity
+            style={{ borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 24, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border }}
+            onPress={() => { setStep('login'); setPastedLink(''); }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>Voltar ao login</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // 4. TELA DE CADASTRO (Se não for 'initial', 'login' nem 'reset-sent', cai aqui)
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
       <View style={[styles.bgCircle1, { backgroundColor: theme.card }]} />

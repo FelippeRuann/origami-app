@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { SafeAreaView, StyleSheet, View, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
+import * as Linking from 'expo-linking';
 
 // Importação do Contexto Global (onde ficam os dados do usuário e funções do Firebase)
 import { AppProvider, useApp } from './src/context/AppContext';
@@ -17,6 +18,7 @@ import AdminDiscovery from './src/screens/AdminDiscovery';
 import DetailScreen from './src/screens/DetailScreen';
 import FoldingScreen from './src/screens/FoldingScreen';
 import Layout from './src/components/Layout';
+import AchievementToast from './src/components/AchievementToast';
 
 /**
  * MainNavigator: Componente responsável por decidir qual tela mostrar.
@@ -24,7 +26,18 @@ import Layout from './src/components/Layout';
  */
 function MainNavigator() {
   // Pegando os estados globais do AppContext
-  const { user, isDarkMode, theme, currentDetail, foldingOrigami, currentRoute, setCurrentRoute, isAuthReady } = useApp();
+  const { user, isDarkMode, theme, currentDetail, foldingOrigami, currentRoute, setCurrentRoute, isAuthReady, setResetOobCode } = useApp();
+
+  useEffect(() => {
+    const parseUrl = (url) => {
+      if (!url) return;
+      const m = url.match(/[?&]oobCode=([^&\s]+)/);
+      if (m) setResetOobCode(decodeURIComponent(m[1]));
+    };
+    Linking.getInitialURL().then(parseUrl);
+    const sub = Linking.addEventListener('url', ({ url }) => parseUrl(url));
+    return () => sub.remove();
+  }, []);
 
   // Função que decide o que renderizar na tela
   const renderContent = () => {
@@ -84,6 +97,7 @@ function MainNavigator() {
       <View style={[styles.appWrapper, { backgroundColor: theme.bg }]}>
         {renderContent()}
       </View>
+      <AchievementToast />
     </View>
   );
 }

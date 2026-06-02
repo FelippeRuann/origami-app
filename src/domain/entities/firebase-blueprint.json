@@ -1,0 +1,139 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Representa o perfil básico do usuário com privilégios Pro/Teacher e código de convite.",
+      "type": "object",
+      "properties": {
+        "rank": { "type": "string", "description": "Rank do usuário no origami" },
+        "isPro": { "type": "boolean", "description": "Se o usuário possui acesso Pro" },
+        "isTeacher": { "type": "boolean", "description": "Se o usuário é Professor" },
+        "watchedVideos": { "type": "number", "description": "Quantidade de vídeos assistidos" },
+        "teacherCode": { "type": "string", "description": "Código de convite único do Professor" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação do perfil" }
+      },
+      "required": ["rank", "isPro", "isTeacher"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Um projeto (vídeo de YouTube ou arquivo .fold) salvo pelo usuário em sua biblioteca.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único do projeto" },
+        "title": { "type": "string", "description": "Título customizado na biblioteca do usuário" },
+        "url": { "type": "string", "description": "URL correspondente (.fold ou .json)" },
+        "videoId": { "type": "string", "description": "ID do vídeo do YouTube caso seja do tipo youtube" },
+        "type": { "type": "string", "enum": ["youtube", "fold"], "description": "Tipo de recurso" },
+        "progress": { "type": "string", "description": "Progresso de conclusão do usuário" },
+        "date": { "type": "string", "description": "Data de criação ou última alteração" },
+        "data": { "type": "object", "description": "Conteúdo JSON nativo do projeto .fold" }
+      },
+      "required": ["id", "title", "type"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Um aluno associado à turma VIP de um professor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único do aluno" },
+        "name": { "type": "string", "description": "Nome do aluno" },
+        "email": { "type": "string", "description": "E-mail do aluno" },
+        "progress": { "type": "number", "description": "Vídeos assistidos ou progresso de dobras" },
+        "status": { "type": "string", "enum": ["Ativo", "Pendente"], "description": "Status de inscrição" },
+        "addedAt": { "type": "string", "format": "date-time", "description": "Data de adição" }
+      },
+      "required": ["id", "name", "email", "status"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Um tutorial VIP publicado por um professor para seus alunos.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único da atividade" },
+        "title": { "type": "string", "description": "Título da atividade" },
+        "type": { "type": "string", "enum": ["Video", "Fold"], "description": "Tipo de mídia do tutorial" },
+        "url": { "type": "string", "description": "Link do YouTube ou arquivo .fold" },
+        "teacherId": { "type": "string", "description": "ID do professor que publicou" },
+        "teacherName": { "type": "string", "description": "Nome de exibição do professor" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de publicação" }
+      },
+      "required": ["id", "title", "type", "teacherId", "teacherName", "createdAt"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "A inscrição de um aluno na turma VIP de um professor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID do professor inscrito" },
+        "teacherId": { "type": "string", "description": "ID do professor inscrito" },
+        "teacherName": { "type": "string", "description": "Nome de exibição do professor" },
+        "code": { "type": "string", "description": "Código de convite do professor" },
+        "joinedAt": { "type": "string", "format": "date-time", "description": "Data de inscrição" }
+      },
+      "required": ["id", "teacherId", "teacherName", "code", "joinedAt"]
+    },
+    "CommunityVideo": {
+      "title": "CommunityVideo",
+      "description": "Um vídeo da biblioteca pública da comunidade aprovado/curado por IA.",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string", "description": "ID do vídeo do YouTube" },
+        "title": { "type": "string", "description": "Título do vídeo" },
+        "description": { "type": "string", "description": "Descrição do vídeo" },
+        "channelTitle": { "type": "string", "description": "Título do canal do YouTube" },
+        "channelId": { "type": "string", "description": "ID do canal do YouTube" },
+        "thumbnail": { "type": "string", "description": "URL da miniatura do vídeo" },
+        "duration": { "type": "string", "description": "Duração formatada" },
+        "tags": { "type": "array", "description": "Tags associadas" },
+        "difficulty": { "type": "string", "description": "Nível de dificuldade do origami" },
+        "addedAt": { "type": "string", "format": "date-time", "description": "Data de adição" },
+        "verifiedByAI": { "type": "boolean", "description": "Se já foi verificado pela inteligência artificial" },
+        "aiSummary": { "type": "string", "description": "Resumo gerado por IA" }
+      },
+      "required": ["videoId", "title", "difficulty"]
+    },
+    "ProcessedVideoCheck": {
+      "title": "ProcessedVideoCheck",
+      "description": "Histórico de vídeos rejeitados ou já verificados para economizar cota da IA.",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string", "description": "ID do vídeo do YouTube" },
+        "title": { "type": "string", "description": "Título original do vídeo" },
+        "description": { "type": "string", "description": "Descrição original do vídeo" },
+        "status": { "type": "string", "enum": ["rejected", "accepted"], "description": "Resultado de verificação" },
+        "addedAt": { "type": "string", "format": "date-time", "description": "Data de processamento" }
+      },
+      "required": ["videoId", "title", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Dados do perfil principal do usuário."
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Projetos locais, importados ou favoritos salvos pelo usuário."
+    },
+    "/users/{userId}/students/{studentId}": {
+      "schema": "Student",
+      "description": "Alunos gerenciados pelo professor (somente acessível se o usuário correspondente for professor/pro)."
+    },
+    "/users/{userId}/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Tutoriais VIP criados e publicados por este usuário como professor."
+    },
+    "/users/{userId}/subscriptions/{teacherId}": {
+      "schema": "Subscription",
+      "description": "Turmas VIP de professores que este usuário se inscreveu."
+    },
+    "/community_videos/{videoId}": {
+      "schema": "CommunityVideo",
+      "description": "Vídeos de origami indexados e sugeridos à comunidade."
+    },
+    "/processed_video_checks/{checkId}": {
+      "schema": "ProcessedVideoCheck",
+      "description": "Rastreamento de vídeos rejeitados ou aceitos pela IA para evitar reprocessamento desnecessário."
+    }
+  }
+}

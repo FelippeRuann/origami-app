@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, Linking } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,16 +8,28 @@ import { useApp } from '../context/AppContext';
 const { width } = Dimensions.get('window');
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, pendingProOpen, setPendingProOpen } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showRankSelector, setShowRankSelector] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProPage, setShowProPage] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  
+
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (pendingProOpen) {
+      setShowSettings(true);
+      setShowProPage(true);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start();
+      setPendingProOpen(false);
+    }
+  }, [pendingProOpen]);
 
   const handleOpenSettings = () => {
     setShowSettings(true);
@@ -317,6 +329,19 @@ export default function Profile() {
                   <Switch
                     value={notifPrefs?.streakAlert || false}
                     onValueChange={v => handleSaveNotifPrefs({ ...(notifPrefs || {}), streakAlert: v })}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                {/* Haptics */}
+                <View style={[s.notifRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                  <View style={s.notifInfo}>
+                    <Text style={[s.notifLabel, { color: theme.text }]}>Vibração (haptics)</Text>
+                    <Text style={[s.notifDesc, { color: theme.textDim }]}>Feedback tátil em botões e conquistas</Text>
+                  </View>
+                  <Switch
+                    value={hapticsEnabled}
+                    onValueChange={updateHapticsEnabled}
                     trackColor={{ false: theme.border, true: theme.primary }}
                     thumbColor="#fff"
                   />
