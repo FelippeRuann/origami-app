@@ -150,7 +150,7 @@ async function detectBoxes(imagePath, origWidth, origHeight) {
   // não o modelo — este log é o que permite distinguir os dois casos.
   console.log(`Confiança máxima na página: ${maxConf.toFixed(3)} (limiar ${CONF_THRESHOLD}), ${dets.length} candidato(s).`);
 
-  return nms(dets);
+  return { dets: nms(dets), maxConf };
 }
 
 class NodeCanvasFactory {
@@ -173,7 +173,14 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
     cMapPacked: true,
   }).promise;
 
-  const result = { cover: null, steps: [] };
+  // stats permite ao chamador distinguir "o modelo reconheceu o documento" de
+  // "não reconheci nada e cortei a página ao meio no chute" — sem isso, um PDF
+  // que não é origami produz um .fold indistinguível de uma conversão legítima.
+  const result = {
+    cover: null,
+    steps: [],
+    stats: { totalPages: pdf.numPages, pagesWithDetections: 0, maxConfidence: 0 },
+  };
   let stepCounter = 1;
   const canvasFactory = new NodeCanvasFactory();
 
@@ -192,12 +199,15 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
 
     let dets = [];
     try {
-      dets = await detectBoxes(imgPath, actualWidth, actualHeight);
+      const detection = await detectBoxes(imgPath, actualWidth, actualHeight);
+      dets = detection.dets;
+      result.stats.maxConfidence = Math.max(result.stats.maxConfidence, detection.maxConf);
     } catch (e) {
       console.error(`YOLO falhou na página ${pageIndex}, usando fallback:`, e.message);
     }
 
     if (dets.length > 0) {
+      result.stats.pagesWithDetections++;
       // YOLO detectou regiões — usa bounding boxes reais
       const covers = dets.filter(d => d.classId === CLASS_COVER).sort((a, b) => a.box[1] - b.box[1]);
       const steps  = sortReadingOrder(dets.filter(d => d.classId === CLASS_STEP));

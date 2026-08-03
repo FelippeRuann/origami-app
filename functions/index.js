@@ -30,6 +30,12 @@ function parseUpload(req) {
     let file = null;
     let writeDone = null;
     let tooLarge = false;
+    let force = false;
+
+    // Campo enviado junto do arquivo para converter mesmo sem detecção.
+    busboy.on('field', (name, value) => {
+      if (name === 'force') force = value === 'true' || value === '1';
+    });
 
     busboy.on('file', (fieldname, stream, info) => {
       if (fieldname !== 'pdf' || file) {
@@ -60,7 +66,7 @@ function parseUpload(req) {
           fs.rmSync(file.path, { force: true });
           return reject(new Error('O PDF excede o limite de 20MB.'));
         }
-        resolve(file);
+        resolve(file && { ...file, force });
       } catch (e) {
         reject(e);
       }
@@ -101,6 +107,20 @@ export const uploadPdf = onRequest(
     try {
       console.log('Processando PDF:', file.originalname);
       const result = await processPdf(pdfPath, jobOutputDir, file.originalname);
+
+      const { pagesWithDetections, totalPages, maxConfidence } = result.stats;
+      console.log(`Detecção: ${pagesWithDetections}/${totalPages} página(s), confiança máx ${maxConfidence.toFixed(3)}.`);
+
+      // Nenhuma página reconhecida = o fallback cortaria tudo ao meio no chute,
+      // gerando um .fold sem sentido. Recusamos aqui, antes de chamar o Gemini,
+      // que é a parte cara. `force` permite converter mesmo assim.
+      if (pagesWithDetections === 0 && !file.force) {
+        return res.status(422).json({
+          error: 'Este PDF não parece um diagrama de origami — nenhum passo foi reconhecido em nenhuma página.',
+          reason: 'no_detections',
+          stats: result.stats,
+        });
+      }
 
       const pdfAI = new GoogleGenAI({ apiKey: process.env.GEMINI_PDF_KEY });
 
@@ -158,7 +178,8 @@ export const uploadPdf = onRequest(
         success: true,
         foldData,
         foldFileBase64,
-        filename: file.originalname.replace(/\.pdf$/i, '') + '.fold'
+        filename: file.originalname.replace(/\.pdf$/i, '') + '.fold',
+        stats: result.stats,
       });
 
     } catch (e) {

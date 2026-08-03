@@ -395,7 +395,7 @@ export function AppProvider({ children }) {
       }
       await ManageProjectsUseCase.addYoutubeProject(newProject.title, newProject.url, newProject.videoId, userId);
     } else {
-      await ManageProjectsUseCase.addFoldProject(newProject.title, newProject.data || newProject, userId);
+      await ManageProjectsUseCase.addFoldProject(newProject.title, newProject.data || newProject, userId, newProject.source);
     }
     setImportedProjects(await ManageProjectsUseCase.getProjects(userId));
   };

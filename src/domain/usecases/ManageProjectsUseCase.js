@@ -27,7 +27,7 @@ export class ManageProjectsUseCase {
     return await OrigamiProjectRepository.save(newProject, userId);
   }
  
-  static async addFoldProject(filename, foldData, userId = 'guest') {
+  static async addFoldProject(filename, foldData, userId = 'guest', source = 'manual') {
     let finalData = foldData;
     let fileUrl = null;
 
@@ -72,7 +72,8 @@ export class ManageProjectsUseCase {
       date: 'Agora',
       data: finalData,
       url: fileUrl,
-      type: 'fold'
+      type: 'fold',
+      source
     };
     return await OrigamiProjectRepository.save(newProject, userId);
   }
@@ -110,7 +111,8 @@ export class ManageProjectsUseCase {
       pData.type,
       pData.progress,
       pData.date,
-      pData.data
+      pData.data,
+      pData.source // sem isto, renomear um convertido o transformaria em 'manual'
     );
 
     // Executa a regra de negócio na entidade

@@ -16,7 +16,6 @@ export default function Library() {
   const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle, navigateToPro, scrollToTopSignal } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [isConverting, setIsConverting] = useState(false);
-  const [convertedFiles, setConvertedFiles] = useState([]);
   
   // Renaming state
   const [editingProject, setEditingProject] = useState(null);
@@ -97,8 +96,17 @@ export default function Library() {
 
   const isLandscape = windowDims.width > windowDims.height;
 
-  // Filtragem local
-  const filteredProjects = allProjects.filter(p => 
+  // Arquivos gerados pela conversão de PDF ficam em bloco próprio (Ferramentas do
+  // Criador), não misturados em "Meus Projetos": a conversão é automática e pode
+  // sair errada, então o usuário precisa conseguir revisá-los e apagá-los à parte.
+  const convertedProjects = React.useMemo(
+    () => allProjects.filter(p => p.source === 'converted'),
+    [allProjects]
+  );
+
+  // Filtragem local (exclui os convertidos, que têm seção própria)
+  const filteredProjects = allProjects.filter(p =>
+    p.source !== 'converted' &&
     p.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -214,6 +222,17 @@ export default function Library() {
         return;
       }
 
+      await sendPdfForConversion(file);
+    } catch (error) {
+      console.error('Erro ao escolher o arquivo:', error);
+      Alert.alert('Erro', 'Não foi possível abrir o arquivo selecionado.');
+    }
+  };
+
+  // Separado de handleConvertPDF para permitir reenviar o MESMO arquivo com
+  // force=true quando o servidor recusa por não reconhecer o documento.
+  const sendPdfForConversion = async (file, force = false) => {
+    try {
       setIsConverting(true);
 
       const formData = new FormData();
@@ -222,8 +241,9 @@ export default function Library() {
         name: file.name,
         type: file.mimeType || 'application/pdf',
       });
+      if (force) formData.append('force', 'true');
 
-      console.log("Enviando para:", API_URL);
+      console.log("Enviando para:", API_URL, force ? '(forçado)' : '');
 
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -243,6 +263,22 @@ export default function Library() {
         } catch {
           errData = { error: 'Unknown server error: ' + (responseText ? responseText.slice(0, 100) : 'vazio') };
         }
+
+        // O servidor não reconheceu nenhum passo. Pode ser um PDF que não é
+        // origami, ou um origami que o modelo não conhece — como ainda não dá
+        // para distinguir, deixamos o usuário insistir em vez de bloquear.
+        if (errData.reason === 'no_detections') {
+          Alert.alert(
+            'Não parece um diagrama de origami',
+            'Nenhum passo foi reconhecido neste PDF. Se você tem certeza de que é um diagrama, pode converter mesmo assim — mas o resultado pode sair sem sentido.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Converter mesmo assim', onPress: () => sendPdfForConversion(file, true) },
+            ]
+          );
+          return;
+        }
+
         Alert.alert('Erro', errData.error || 'Falha ao converter o PDF');
         return;
       }
@@ -306,12 +342,17 @@ export default function Library() {
             date: 'Agora',
             data: foldData,
             storageUrl: storageUrl, // Se salvou na nuvem, mantém o link
-            type: 'fold'
+            type: 'fold',
+            source: 'converted'
         };
 
         addImportedProject(newFile);
-        setConvertedFiles([newFile, ...convertedFiles]);
-        Alert.alert('Sucesso!', 'PDF convertido com sucesso e salvo na sua biblioteca/nuvem!');
+
+        const s = data.stats;
+        const detalhe = s
+          ? `\n\n${s.pagesWithDetections} de ${s.totalPages} página(s) reconhecida(s). ${foldData?.steps?.length || 0} passo(s) gerado(s).`
+          : '';
+        Alert.alert('Sucesso!', `PDF convertido e salvo na sua biblioteca.${detalhe}`);
       } catch (jsonError) {
         Alert.alert('Erro ao interpretar', 'O servidor não devolveu um arquivo .fold válido.');
       }
@@ -739,22 +780,75 @@ export default function Library() {
           </Text>
         </TouchableOpacity>
 
-        {convertedFiles.length > 0 && (
-          <View style={s.filesList}>
-            <Text style={[s.sectionSubtitle, { color: theme.text, marginBottom: 8, fontWeight: 'bold' }]}>Convertidos Recentemente:</Text>
-            {convertedFiles.map(f => (
-              <View key={f.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <View style={[s.fileIcon, { backgroundColor: theme.bg }]}>
-                  <Feather name="package" size={20} color={theme.primary} />
-                </View>
-                <View style={s.fileInfo}>
-                  <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{f.title}</Text>
-                  <Text style={[s.fileSize, { color: theme.textDim }]}>{f.size} • {f.date}</Text>
+        {/* Arquivos convertidos: lista persistente (vem do repositório, não de um
+            estado de sessão), com abrir, renomear e excluir. Ficam aqui e não em
+            "Meus Projetos" porque são gerados por IA e precisam de revisão. */}
+        <View style={s.filesList}>
+          <Text style={[s.sectionSubtitle, { color: theme.text, marginBottom: 8, fontWeight: 'bold' }]}>
+            Arquivos Convertidos {convertedProjects.length > 0 ? `(${convertedProjects.length})` : ''}
+          </Text>
+
+          {convertedProjects.length === 0 ? (
+            <View style={{ padding: 16, alignItems: 'center', opacity: 0.6 }}>
+              <Feather name="package" size={28} color={theme.textMuted} style={{ marginBottom: 8 }} />
+              <Text style={{ color: theme.textMuted, textAlign: 'center' }}>
+                Nenhum PDF convertido ainda.
+              </Text>
+            </View>
+          ) : (
+            convertedProjects.map(p => (
+              <View key={p.id} style={[s.fileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', flex: 1, alignItems: 'center' }}
+                  onPress={async () => {
+                    if (p.url && !p.data) {
+                      try {
+                        const res = await fetch(p.url);
+                        setFoldingOrigami(await res.json());
+                      } catch (e) {
+                        Alert.alert('Erro', 'Falha ao baixar os dados do origami.');
+                      }
+                    } else if (p.data) {
+                      setFoldingOrigami(p.data);
+                    } else {
+                      setFoldingOrigami(p.id);
+                    }
+                  }}
+                >
+                  <View style={[s.fileIcon, { backgroundColor: theme.bg }]}>
+                    <Feather name="package" size={20} color={theme.primary} />
+                  </View>
+                  <View style={s.fileInfo}>
+                    <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{p.title}</Text>
+                    <Text style={[s.fileSize, { color: theme.textDim }]}>
+                      Convertido por IA • {p.date}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity
+                    style={s.fileAction}
+                    onPress={() => { setEditingProject(p); setEditTitle(p.title); }}
+                  >
+                    <Feather name="edit-2" size={18} color={theme.textDim} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.fileAction}
+                    onPress={() => {
+                      Alert.alert('Excluir', 'Deseja remover este arquivo convertido?', [
+                        { text: 'Cancelar', style: 'cancel' },
+                        { text: 'Remover', style: 'destructive', onPress: () => removeImportedProject(p.id) },
+                      ]);
+                    }}
+                  >
+                    <Feather name="trash-2" size={20} color={theme.danger} />
+                  </TouchableOpacity>
                 </View>
               </View>
-            ))}
-          </View>
-        )}
+            ))
+          )}
+        </View>
 
       </ScrollView>
 

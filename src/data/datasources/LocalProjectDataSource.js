@@ -30,7 +30,7 @@ export class LocalProjectDataSource {
       if (jsonValue != null) {
         const parsed = JSON.parse(jsonValue);
         return parsed.map(item => new OrigamiProject(
-          item.id, item.title, item.url, item.videoId, item.type, item.progress, item.date, item.data
+          item.id, item.title, item.url, item.videoId, item.type, item.progress, item.date, item.data, item.source
         ));
       }
       return [];

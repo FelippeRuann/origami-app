@@ -22,7 +22,8 @@ export class RemoteProjectDataSource {
         type: project.type,
         progress: project.progress,
         date: project.date || new Date().toISOString(),
-        data: project.data || null
+        data: project.data || null,
+        source: project.source || 'manual'
       };
 
       await setDoc(docRef, dataToSave, { merge: true });
@@ -51,7 +52,7 @@ export class RemoteProjectDataSource {
       snapshot.forEach(docSnap => {
         const item = docSnap.data();
         projects.push(new OrigamiProject(
-          item.id, item.title, item.url, item.videoId, item.type, item.progress, item.date, item.data
+          item.id, item.title, item.url, item.videoId, item.type, item.progress, item.date, item.data, item.source
         ));
       });
       return projects;
