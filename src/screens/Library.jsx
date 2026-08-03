@@ -318,7 +318,12 @@ export default function Library() {
 
     } catch (error) {
       console.error('Erro na conversão:', error);
-      Alert.alert('Erro de Conexão', 'Não foi possível conectar ao servidor. Mude para a web ou verifique o IP da API.');
+      // Mostra a URL: quase sempre a falha é EXPO_PUBLIC_API_URL apontando para um
+      // endereço local (ex.: 10.0.2.2, só válido no emulador) em vez da function.
+      Alert.alert(
+        'Erro de Conexão',
+        `Não foi possível conectar ao servidor.\n\nURL usada:\n${API_URL}\n\nDetalhe: ${error.message}`
+      );
     } finally {
       setIsConverting(false);
     }
