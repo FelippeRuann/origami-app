@@ -8,6 +8,9 @@ import os from 'os';
 import { processPdf } from './lib/processPdf.js';
 import { createFoldFile } from './lib/foldFormat.js';
 
+// Buscas de usuário no servidor (substituem o "allow list" das regras do Firestore)
+export { findTeacherByCode, findStudentByEmail } from './lib/userLookup.js';
+
 setGlobalOptions({ maxInstances: 5 });
 
 const upload = multer({ dest: os.tmpdir() });

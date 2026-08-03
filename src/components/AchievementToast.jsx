@@ -3,11 +3,12 @@ import { View, Text, Animated, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import { haptic } from '../utils/haptics';
+import { sound } from '../utils/sounds';
 
 const DURATION = 3500;
 
 export default function AchievementToast() {
-  const { newAchievement, setNewAchievement, theme, hapticsEnabled } = useApp();
+  const { newAchievement, setNewAchievement, theme, hapticsEnabled, soundsEnabled } = useApp();
   const translateY = useRef(new Animated.Value(-200)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const progress = useRef(new Animated.Value(1)).current;
@@ -17,6 +18,7 @@ export default function AchievementToast() {
     if (!newAchievement) return;
 
     haptic.success(hapticsEnabled);
+    sound.play('success', soundsEnabled);
     translateY.setValue(-200);
     opacity.setValue(0);
     progress.setValue(1);

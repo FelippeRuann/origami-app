@@ -1,25 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Dimensions, Image, Alert } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, Dimensions, Animated, Alert, ActivityIndicator } from 'react-native';
 import { Feather, AntDesign } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
 import { haptic } from '../utils/haptics';
+import { sound } from '../utils/sounds';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { YouTubeService } from '../domain/services/YouTubeService';
 import { VideoDiscoveryUseCase } from '../domain/usecases/VideoDiscoveryUseCase';
-import * as ScreenOrientation from 'expo-screen-orientation';
 
 const { width } = Dimensions.get('window');
-
-// Dados estáticos (mock) para as categorias de origami
-const CATEGORIES = [
-  { id: '1', icon: 'github', label: 'Animals',     count: '124 Projects' },
-  { id: '2', icon: 'sun', label: 'Flowers',     count: '88 Projects'  },
-  { id: '3', icon: 'star', label: 'Decorative',  count: '92 Projects'  },
-  { id: '4', icon: 'zap', label: 'Quick Folds', count: '210 Projects' },
-];
-
-// Deixamos vazio pois agora vem do Firestore
-const RECOMMENDED_IDS = [];
 
 /**
  * Componente HeroBanner: Aquele banner grande em destaque no topo da tela.
@@ -51,46 +40,117 @@ function HeroBanner({ theme, onPlayRandom }) {
 /**
  * Componente RecommendedCard: Renderiza cada um dos cards de origamis recomendados (YouTube).
  */
-function RecommendedCard({ item, theme, onPlay }) {
-  const { addImportedProject, removeImportedProject, unsaveOrigami, savedOrigamis, importedProjects, hapticsEnabled } = useApp();
+const CARD_PALETTE = [
+  '#1B2A3B', '#2A1B3B', '#1B3B2A', '#3B1B2A', '#2A2A1B',
+  '#1B3B3B', '#3B2A1B', '#2A1B1B', '#1B2A2A', '#3B3B1B',
+];
+const cardColor = (videoId) => {
+  if (!videoId) return CARD_PALETTE[0];
+  let h = 0;
+  for (let i = 0; i < videoId.length; i++) h = (Math.imul(31, h) + videoId.charCodeAt(i)) | 0;
+  return CARD_PALETTE[Math.abs(h) % CARD_PALETTE.length];
+};
+
+const DOUBLE_TAP_MS = 280;
+
+const RecommendedCard = React.memo(function RecommendedCard({ item, theme, onPlay, cardWidth = '48%' }) {
+  const { addImportedProject, removeImportedProject, unsaveOrigami, savedOrigamis, importedProjects, hapticsEnabled, soundsEnabled } = useApp();
+  const thumbOpacity = useRef(new Animated.Value(0)).current;
+  const heartPop = useRef(new Animated.Value(0)).current;
+  const lastTapRef = useRef(0);
+  const playTimerRef = useRef(null);
+  const bgColor = cardColor(item.youtubeId);
 
   const savedEntry = (importedProjects || []).find(p => p.videoId === item.youtubeId);
   const savedFav   = (savedOrigamis   || []).find(o => (o.videoId || o.youtubeId) === item.youtubeId);
   const saved = !!(savedEntry || savedFav);
 
+  useEffect(() => () => clearTimeout(playTimerRef.current), []);
+
+  const playHeartPop = () => {
+    sound.play('pop', soundsEnabled);
+    heartPop.setValue(0);
+    Animated.sequence([
+      Animated.spring(heartPop, { toValue: 1, useNativeDriver: true, speed: 24, bounciness: 14 }),
+      Animated.timing(heartPop, { toValue: 0, duration: 250, delay: 400, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const addToLibrary = async () => {
+    const result = await addImportedProject({
+      id: Date.now().toString(),
+      title: item.title,
+      url: `https://youtube.com/watch?v=${item.youtubeId}`,
+      videoId: item.youtubeId,
+      type: 'youtube',
+      progress: '0%',
+      date: 'Agora',
+    });
+    // Só anima se salvou de fato (limite freemium pode bloquear e abrir a tela Pro)
+    if (result === false) return;
+    playHeartPop();
+  };
+
+  // Botão de coração: alterna salvar/remover
   const handleToggleLibrary = () => {
     haptic.light(hapticsEnabled);
     if (saved) {
       if (savedEntry) removeImportedProject(savedEntry.id);
       if (savedFav)   unsaveOrigami(savedFav.id || savedFav.videoId);
     } else {
-      addImportedProject({
-        id: Date.now().toString(),
-        title: item.title,
-        url: `https://youtube.com/watch?v=${item.youtubeId}`,
-        videoId: item.youtubeId,
-        type: 'youtube',
-        progress: '0%',
-        date: 'Agora',
-      });
+      addToLibrary();
+    }
+  };
+
+  // Um toque abre o vídeo; dois toques rápidos favoritam (estilo Instagram).
+  // Duplo toque nunca REMOVE — se já está salvo, só mostra o coração de confirmação.
+  const handleCardPress = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      lastTapRef.current = 0;
+      clearTimeout(playTimerRef.current);
+      haptic.light(hapticsEnabled);
+      if (saved) playHeartPop();
+      else addToLibrary();
+    } else {
+      lastTapRef.current = now;
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = setTimeout(() => onPlay(item), DOUBLE_TAP_MS);
     }
   };
 
   return (
-    <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border, width: '48%', marginBottom: 16 }]}>
-      <TouchableOpacity style={[s.recImage, { backgroundColor: item.bg, height: 120 }]} onPress={() => onPlay(item)} activeOpacity={0.8}>
-        <Image
+    <View style={[s.recCard, { backgroundColor: theme.surface, borderColor: theme.border, width: cardWidth, marginBottom: 16 }]}>
+      <TouchableOpacity style={[s.recImage, { backgroundColor: bgColor, height: 120 }]} onPress={handleCardPress} activeOpacity={0.8}>
+        <Animated.Image
            source={{ uri: item.thumbnailUrl || `https://img.youtube.com/vi/${item.youtubeId}/hqdefault.jpg` }}
-           style={[StyleSheet.absoluteFillObject, { opacity: 0.9 }]}
+           style={[StyleSheet.absoluteFillObject, { opacity: thumbOpacity }]}
            resizeMode="cover"
+           onLoad={() => Animated.timing(thumbOpacity, { toValue: 0.9, duration: 350, useNativeDriver: true }).start()}
         />
         <View style={[s.diffBadge, { left: 12, borderColor: item.difficultyColor }]}>
           <Text style={[s.diffText, { color: item.difficultyColor }]}>{item.difficulty}</Text>
         </View>
-        <TouchableOpacity style={s.likeBtn} onPress={handleToggleLibrary}>
+        <Feather name="play-circle" size={32} color="#fff" style={{ position: 'absolute', opacity: 0.8 }} />
+        {/* Coração animado ao favoritar com duplo toque */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            opacity: heartPop,
+            transform: [{ scale: heartPop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.6] }) }],
+          }}
+        >
+          <AntDesign name="heart" size={44} color="#ef4444" />
+        </Animated.View>
+        <TouchableOpacity
+          style={s.likeBtn}
+          onPress={handleToggleLibrary}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <AntDesign name="heart" size={16} color={saved ? '#ef4444' : '#fff'} />
         </TouchableOpacity>
-        <Feather name="play-circle" size={32} color="#fff" style={{ position: 'absolute', opacity: 0.8 }} />
       </TouchableOpacity>
       <View style={[s.recInfo, { padding: 10 }]}>
         <Text style={[s.recTitle, { color: theme.text, fontSize: 13, height: 36 }]} numberOfLines={2}>{item.title}</Text>
@@ -98,7 +158,7 @@ function RecommendedCard({ item, theme, onPlay }) {
           <Feather name="clock" size={10} color={theme.textMuted} />
           <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10 }]}> {item.time}  </Text>
           <Feather name="eye" size={10} color={theme.textMuted} />
-          <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10 }]}> {item.views}</Text>
+          <Text style={[s.recMetaText, { color: theme.textMuted, fontSize: 10, flexShrink: 1 }]} numberOfLines={1}> {item.views}</Text>
         </View>
         <TouchableOpacity style={[s.startBtn, { backgroundColor: theme.danger, paddingVertical: 8 }]} activeOpacity={0.85} onPress={() => onPlay(item)}>
           <Text style={[s.startBtnText, { color: 'white', fontSize: 10 }]}>Assistir</Text>
@@ -106,7 +166,7 @@ function RecommendedCard({ item, theme, onPlay }) {
       </View>
     </View>
   );
-}
+});
 
 /**
  * Discover: A tela principal do aplicativo (o "Feed").
@@ -129,20 +189,31 @@ export default function Discover() {
   }, []);
 
   const isLandscape = windowDims.width > windowDims.height;
-  
-  // Lista dinamica do banco de dados (paginada)
+
+  // Colunas responsivas: 2 no celular, 3 em telas médias, 4 em tablets grandes/paisagem
+  const numColumns = windowDims.width >= 1000 ? 4 : windowDims.width >= 680 ? 3 : 2;
+  const cardWidth = numColumns === 4 ? '23.5%' : numColumns === 3 ? '31.5%' : '48%';
+
+  const PAGE_SIZE = 15;
+  const allVideosRef = useRef([]); // lista completa embaralhada, nunca re-renderiza sozinha
+
   const [videos, setVideos] = useState([]);
   const [isLoadingVideos, setIsLoadingVideos] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
-  const [allLoaded, setAllLoaded] = useState(false);
-
-  // Cache completo carregado uma vez ao iniciar busca
-  const [allVideosCache, setAllVideosCache] = useState(null);
-  const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+  const [diffFilter, setDiffFilter] = useState('all'); // chips de dificuldade
+  // Derivado: todas as páginas locais já exibidas
+  const allLoaded = allVideosRef.current.length > 0 && videos.length >= allVideosRef.current.length;
 
   // Pega o tema e a função de navegação do contexto global
-  const { theme, setCurrentDetail, setIsFullscreenVideo, user } = useApp();
+  const { theme, setCurrentDetail, setIsFullscreenVideo, user, scrollToTopSignal, navigateToPro } = useApp();
+
+  const listRef = useRef(null);
+
+  // Tocar na aba Discover já ativa: rola a lista de volta ao topo
+  useEffect(() => {
+    if (scrollToTopSignal?.route === 'Discover' && scrollToTopSignal.tick > 0) {
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [scrollToTopSignal]);
 
   useEffect(() => {
     setIsFullscreenVideo(!!playingVideo);
@@ -172,123 +243,118 @@ export default function Discover() {
     }
   };
 
+  const mapVideo = (v) => {
+    const d = v.difficulty?.toLowerCase() || 'easy';
+    let displayTime = v.duration || 'Tutorial';
+    if (displayTime.startsWith('PT')) displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
+    return {
+      ...v,
+      youtubeId: v.videoId,
+      time: displayTime,
+      difficulty: d.toUpperCase(),
+      difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
+      views: v.channelTitle || 'YouTube',
+      bg: '#000',
+    };
+  };
+
   useEffect(() => {
-    async function fetchCommunityVideos() {
+    async function fetchDiscoverFeed() {
       setIsLoadingVideos(true);
       try {
-        const { videos: fetchedVideos, lastVisible } = await VideoDiscoveryUseCase.getCommunityVideos(10);
-        
-        const mappedResults = fetchedVideos.map(v => {
-          const d = v.difficulty?.toLowerCase() || 'easy';
-          let displayTime = v.duration || 'Tutorial';
-          if (displayTime.startsWith('PT')) {
-            displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
-          }
-          return {
-            ...v,
-            youtubeId: v.videoId,
-            time: displayTime,
-            difficulty: d.toUpperCase(),
-            difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
-            views: 'IA Verified',
-            bg: '#000'
-          };
-        });
-        
-        setVideos(mappedResults);
-        setLastVisibleDoc(lastVisible);
-        if (fetchedVideos.length < 10) setAllLoaded(true);
-        
+        // Feed ao vivo: RSS dos canais confiáveis + banco curado (só leitura)
+        const all = await VideoDiscoveryUseCase.getLiveFeedForUser(user?.id);
+        const mapped = all.map(mapVideo);
+        allVideosRef.current = mapped;
+        setVideos(mapped.slice(0, PAGE_SIZE));
       } catch (err) {
-        console.error("Erro ao carregar vídeos da comunidade:", err);
+        console.error("Erro ao carregar feed de descoberta:", err);
       } finally {
         setIsLoadingVideos(false);
       }
     }
-    fetchCommunityVideos();
+    fetchDiscoverFeed();
   }, []);
   
-  const loadMoreVideos = async () => {
-    if (isLoadingMore || allLoaded || !lastVisibleDoc || searchQuery) return;
-    
-    setIsLoadingMore(true);
+  // Paginação local: fatia a lista já em memória — instantâneo, sem rede
+  const loadMoreVideos = useCallback(() => {
+    if (allLoaded || searchQuery || diffFilter !== 'all') return;
+    setVideos(prev => {
+      const next = allVideosRef.current.slice(prev.length, prev.length + PAGE_SIZE);
+      return next.length > 0 ? [...prev, ...next] : prev;
+    });
+  }, [allLoaded, searchQuery, diffFilter]);
+
+
+  // Busca ao vivo no YouTube (disparada só pelo botão — protege a cota da API)
+  const [ytResults, setYtResults] = useState(null);
+  const [isSearchingYt, setIsSearchingYt] = useState(false);
+
+  useEffect(() => { setYtResults(null); }, [searchQuery]);
+
+  const handleYtSearch = async () => {
+    if (!searchQuery.trim() || isSearchingYt) return;
+    setIsSearchingYt(true);
     try {
-      const { videos: fetchedVideos, lastVisible } = await VideoDiscoveryUseCase.getCommunityVideos(10, lastVisibleDoc);
-      
-      if (fetchedVideos.length === 0) {
-        setAllLoaded(true);
-      } else {
-        const mappedResults = fetchedVideos.map(v => {
-          const d = v.difficulty?.toLowerCase() || 'easy';
-          let displayTime = v.duration || 'Tutorial';
-          if (displayTime.startsWith('PT')) {
-            displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
-          }
-          return {
-            ...v,
-            youtubeId: v.videoId,
-            time: displayTime,
-            difficulty: d.toUpperCase(),
-            difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
-            views: 'IA Verified',
-            bg: '#000'
-          };
-        });
-        
-        setVideos(prev => [...prev, ...mappedResults]);
-        setLastVisibleDoc(lastVisible);
-        if (fetchedVideos.length < 10) setAllLoaded(true);
-      }
+      const res = await VideoDiscoveryUseCase.searchOrigamiLive(searchQuery, 25, { isPro: !!user?.isPro });
+      setYtResults(res.map(mapVideo));
     } catch (err) {
-      console.error("Erro ao carregar mais vídeos:", err);
+      if (err?.code === 'SEARCH_LIMIT') {
+        Alert.alert(
+          'Limite diário atingido',
+          `Você usou suas ${VideoDiscoveryUseCase.FREE_LIVE_SEARCHES_PER_DAY} buscas ao vivo de hoje. Com o Pro, as buscas no YouTube são ilimitadas.`,
+          [
+            { text: 'Agora não', style: 'cancel' },
+            { text: 'Conhecer o Pro', onPress: navigateToPro },
+          ]
+        );
+      } else {
+        setYtResults([]);
+      }
     } finally {
-      setIsLoadingMore(false);
+      setIsSearchingYt(false);
     }
   };
 
-  useEffect(() => {
-    if (playingVideo) {
-      ScreenOrientation.unlockAsync();
-    } else {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    }
-  }, [playingVideo]);
+  // Filtro de dificuldade (chips)
+  const matchesDiff = (item) => {
+    if (diffFilter === 'all') return true;
+    const d = (item.difficulty || '').toLowerCase();
+    if (diffFilter === 'intermediate') return d === 'intermediate' || d === 'medium';
+    return d === diffFilter;
+  };
 
-  // Carrega todos os vídeos uma vez quando o usuário começa a buscar
-  useEffect(() => {
-    if (!searchQuery || allVideosCache !== null) return;
-    setIsLoadingSearch(true);
-    VideoDiscoveryUseCase.getAllVideos().then(rawVideos => {
-      const mapped = rawVideos.map(v => {
-        const d = v.difficulty?.toLowerCase() || 'easy';
-        let displayTime = v.duration || 'Tutorial';
-        if (displayTime.startsWith('PT')) displayTime = VideoDiscoveryUseCase.formatISO8601Duration(displayTime);
-        return {
-          ...v,
-          youtubeId: v.videoId,
-          time: displayTime,
-          difficulty: d.toUpperCase(),
-          difficultyColor: d === 'hard' ? '#F59E0B' : (d === 'medium' || d === 'intermediate') ? '#3B82F6' : '#22C55E',
-          views: 'IA Verified',
-          bg: '#000'
-        };
-      });
-      setAllVideosCache(mapped);
-    }).catch(() => {
-      setAllVideosCache(videos); // fallback para o que já está em memória
-    }).finally(() => setIsLoadingSearch(false));
-  }, [searchQuery]);
+  // Busca filtra diretamente do allVideosRef (já carregado, sem rede).
+  // Com filtro de dificuldade ativo, usa a lista completa (não a paginada).
+  const baseList = searchQuery
+    ? allVideosRef.current.filter(item => item.title?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : diffFilter !== 'all' ? allVideosRef.current : videos;
+  const localMatches = baseList.filter(matchesDiff);
 
-  // Filtra a lista de recomendados com base no que o usuário digitou na busca
-  const sourceForSearch = allVideosCache || videos;
-  const filteredRecommended = searchQuery
-    ? sourceForSearch.filter(item => item.title?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : videos;
+  // Mescla resultados do YouTube ao vivo (sem duplicar os já exibidos)
+  let filteredRecommended = localMatches;
+  if (searchQuery && ytResults?.length > 0) {
+    const seen = new Set(localMatches.map(v => v.youtubeId));
+    filteredRecommended = [...localMatches, ...ytResults.filter(v => matchesDiff(v) && !seen.has(v.youtubeId))];
+  }
 
   // Truque/Easter Egg: Se buscar por "drag" e não achar nada, mostra um dragão secreto
   const displayRecommended = searchQuery.toLowerCase().includes('drag') && filteredRecommended.length === 0
     ? [{ id: 'drag1', title: 'Ancient Dragon (API)', difficulty: 'EXPERT', difficultyColor: '#E11D48', time: '120 min', steps: '145 steps', icon: 'wind', bg: '#881337', youtubeId: 'kUsxMXwCW8A', views: 'API views' }]
     : filteredRecommended;
+
+  const renderCard = useCallback(
+    ({ item }) => <RecommendedCard item={item} theme={theme} onPlay={setPlayingVideo} cardWidth={cardWidth} />,
+    [theme, cardWidth]
+  );
+  const keyExtractor = useCallback((item) => item.id?.toString() || item.youtubeId, []);
+
+  const DIFF_CHIPS = [
+    { key: 'all',          label: 'Todos',   color: theme.primary },
+    { key: 'easy',         label: 'Fácil',   color: '#22C55E' },
+    { key: 'intermediate', label: 'Médio',   color: '#3B82F6' },
+    { key: 'hard',         label: 'Difícil', color: '#F59E0B' },
+  ];
 
   if (playingVideo) {
     return (
@@ -340,8 +406,7 @@ export default function Discover() {
               </View>
               
               <Text style={{color: theme.textDim, fontSize: 14, marginTop: 15, lineHeight: 22}}>
-                 Você está assistindo diretamente pelo App usando "react-native-youtube-iframe"!
-                 Informações puxadas direto da API do YouTube. Para salvar seu progresso e continuar depois, adicione este vídeo à sua Biblioteca.
+                 Para salvar seu progresso e continuar depois, adicione este vídeo à sua Biblioteca.
               </Text>
            </View>
          )}
@@ -372,75 +437,101 @@ export default function Discover() {
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
           />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x-circle" size={18} color={theme.textDim} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
-      <ScrollView 
-        style={s.scroll} 
-        contentContainerStyle={s.scrollContent} 
+      <FlatList
+        ref={listRef}
+        data={displayRecommended}
+        renderItem={renderCard}
+        keyExtractor={keyExtractor}
+        numColumns={numColumns}
+        key={`cols-${numColumns}`}
+        columnWrapperStyle={s.columnWrapper}
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
-        onScroll={({ nativeEvent }) => {
-          const isCloseToBottom = nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >= nativeEvent.contentSize.height - 50;
-          if (isCloseToBottom) {
-            loadMoreVideos();
-          }
-        }}
-        scrollEventThrottle={400}
-      >
-        <HeroBanner theme={theme} onPlayRandom={handlePlayRandom} />
-
-        {/* Categories section hidden as requested */}
-        {/*
-        <View style={s.section}>
-          <View style={s.sectionHeader}>
-            <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
-            <TouchableOpacity><Text style={[s.viewAll, { color: theme.primary }]}>View All</Text></TouchableOpacity>
-          </View>
-          <View style={s.catGrid}>
-            {CATEGORIES.map((cat) => (
-              <TouchableOpacity key={cat.id} style={[s.catCard, { backgroundColor: theme.surface, borderColor: theme.border }]} activeOpacity={0.75}>
-                <Feather name={cat.icon} size={24} color={theme.primary} style={{ marginBottom: 8 }} />
-                <Text style={[s.catLabel, { color: theme.text }]}>{cat.label}</Text>
-                <Text style={[s.catCount, { color: theme.textMuted }]}>{cat.count}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        */}
-
-        {/* Recommended */}
-        <View style={s.section}>
-          <View style={s.sectionHeader}>
-            <Text style={[s.sectionTitle, { color: theme.text }]}>
-              {searchQuery ? 'Resultados da Busca' : 'Descobrir Modelos'}
-            </Text>
-            {!searchQuery && (
-              <View style={s.arrowRow}>
+        keyboardShouldPersistTaps="handled"
+        onEndReached={loadMoreVideos}
+        onEndReachedThreshold={0.6}
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        ListHeaderComponent={
+          <>
+            <HeroBanner theme={theme} onPlayRandom={handlePlayRandom} />
+            <View style={s.listSectionHeader}>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>
+                {searchQuery ? 'Resultados da Busca' : 'Descobrir Modelos'}
+              </Text>
+              <View style={s.filterRow}>
+                {DIFF_CHIPS.map(chip => {
+                  const active = diffFilter === chip.key;
+                  return (
+                    <TouchableOpacity
+                      key={chip.key}
+                      onPress={() => { haptic.light(); setDiffFilter(chip.key); }}
+                      style={[s.filterChip, {
+                        backgroundColor: active ? chip.color + '22' : theme.surface,
+                        borderColor: active ? chip.color : theme.border,
+                      }]}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ color: active ? chip.color : theme.textDim, fontSize: 12, fontWeight: '700' }}>
+                        {chip.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-            )}
-          </View>
-          {isLoadingVideos || isLoadingSearch ? (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>
-              {isLoadingSearch ? 'Buscando em todos os vídeos...' : 'Buscando do YouTube (Clean Arch)...'}
-            </Text>
-          ) : displayRecommended.length > 0 ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              {displayRecommended.map((item) => <RecommendedCard key={item.id} item={item} theme={theme} onPlay={setPlayingVideo} />)}
+            </View>
+          </>
+        }
+        ListEmptyComponent={
+          isLoadingVideos ? (
+            <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={{ color: theme.textMuted, textAlign: 'center', marginTop: 12 }}>Carregando vídeos...</Text>
             </View>
           ) : (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20 }}>
-              {searchQuery 
-                ? `Nenhum modelo encontrado para "${searchQuery}"` 
+            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 20, paddingHorizontal: 16 }}>
+              {searchQuery
+                ? `Nenhum modelo encontrado para "${searchQuery}"`
                 : "Nenhum modelo para descobrir. Por favor, fique online para acessar novos modelos."}
             </Text>
-          )}
-          {isLoadingMore && (
-            <Text style={{ color: theme.textMuted, textAlign: 'center', paddingVertical: 10 }}>Carregando mais vídeos...</Text>
-          )}
-        </View>
-
-
-      </ScrollView>
+          )
+        }
+        ListFooterComponent={
+          searchQuery.trim() ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 }}>
+              {isSearchingYt ? (
+                <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                  <ActivityIndicator color={theme.primary} />
+                  <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 8 }}>Buscando no YouTube...</Text>
+                </View>
+              ) : ytResults === null ? (
+                <TouchableOpacity
+                  style={[s.ytSearchBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleYtSearch}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="youtube" size={16} color={theme.danger} />
+                  <Text style={[s.ytSearchBtnText, { color: theme.text }]}>Buscar "{searchQuery.trim()}" no YouTube</Text>
+                </TouchableOpacity>
+              ) : ytResults.length === 0 ? (
+                <Text style={{ color: theme.textMuted, fontSize: 12, textAlign: 'center', paddingVertical: 8 }}>
+                  Nenhum tutorial de origami a mais encontrado no YouTube.
+                </Text>
+              ) : null}
+            </View>
+          ) : null
+        }
+      />
     </View>
   );
 }
@@ -449,6 +540,15 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 80 },
+  columnWrapper: { justifyContent: 'space-between', paddingHorizontal: 16 },
+  listSectionHeader: { paddingHorizontal: 16, marginTop: 24, marginBottom: 16 },
+  filterRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+  filterChip: { borderWidth: 1.5, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  ytSearchBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16,
+  },
+  ytSearchBtnText: { fontSize: 13, fontWeight: '700', flexShrink: 1 },
 
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

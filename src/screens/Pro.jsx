@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, TextInput, Share } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
@@ -7,9 +7,17 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../firebase';
 import { useApp } from '../context/AppContext';
 
-export default function TeacherPro() {
-  const { theme, user, managedStudents, teacherCode, classActivities, publishActivity, removeStudent, addStudent } = useApp();
+export default function Pro() {
+  const { theme, user, managedStudents, teacherCode, classActivities, publishActivity, removeStudent, addStudent, scrollToTopSignal } = useApp();
   const [isUploading, setIsUploading] = useState(false);
+  const mainScrollRef = useRef(null);
+
+  // Tocar na aba Pro já ativa: rola de volta ao topo
+  useEffect(() => {
+    if (scrollToTopSignal?.route === 'Pro' && scrollToTopSignal.tick > 0) {
+      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  }, [scrollToTopSignal]);
   const [studentEmailInput, setStudentEmailInput] = useState('');
   const [newActTitle, setNewActTitle] = useState('');
   const [newActType, setNewActType] = useState('Video');
@@ -88,6 +96,18 @@ export default function TeacherPro() {
     Alert.alert('Copiado!', `Código ${teacherCode} copiado.`);
   };
 
+  const shareCode = async () => {
+    try {
+      await Share.share({
+        message: `Venha dobrar comigo no OrigamiApp! 🦢\n\nSiga meu estúdio com o código ${teacherCode} na aba Biblioteca e receba meus tutoriais exclusivos.`,
+      });
+    } catch {}
+  };
+
+  // Estatísticas do estúdio
+  const myActivities = classActivities.filter(act => act.teacherId === user?.id);
+  const totalWatchedByStudents = managedStudents.reduce((sum, st) => sum + (st.progress || 0), 0);
+
   return (
     <View style={[s.root, { backgroundColor: theme.bg }]}>
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
@@ -96,14 +116,34 @@ export default function TeacherPro() {
         </Text>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={mainScrollRef} style={s.scroll} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
 
         {/* Código de convite */}
         <View style={s.header}>
-          <Text style={[s.title, { color: theme.text }]}>Seu Estúdio Virtual</Text>
+          <Text style={[s.title, { color: theme.text }]}>Estúdio do Origamista</Text>
           <Text style={[s.subtitle, { color: theme.textMuted }]}>
-            Seus seguidores usam este código na aba Biblioteca para ver seus VIPs.
+            Seus seguidores usam este código na aba Biblioteca para receber seus tutoriais exclusivos.
           </Text>
+
+          {/* Painel do estúdio */}
+          <View style={s.statsRow}>
+            <View style={[s.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Feather name="users" size={18} color={theme.primary} />
+              <Text style={[s.statNum, { color: theme.text }]}>{managedStudents.length}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Aprendizes</Text>
+            </View>
+            <View style={[s.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Feather name="film" size={18} color={theme.primary} />
+              <Text style={[s.statNum, { color: theme.text }]}>{myActivities.length}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Tutoriais</Text>
+            </View>
+            <View style={[s.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Feather name="trending-up" size={18} color={theme.primary} />
+              <Text style={[s.statNum, { color: theme.text }]}>{totalWatchedByStudents}</Text>
+              <Text style={[s.statLabel, { color: theme.textDim }]}>Vídeos vistos</Text>
+            </View>
+          </View>
+
           <View style={[s.codeBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[s.codeLabel, { color: theme.textDim }]}>CÓDIGO DE CONVITE</Text>
             <View style={s.codeRow}>
@@ -112,12 +152,16 @@ export default function TeacherPro() {
                 <Feather name="copy" size={20} color={theme.primary} />
               </TouchableOpacity>
             </View>
+            <TouchableOpacity style={[s.shareBtn, { backgroundColor: theme.primary }]} onPress={shareCode} activeOpacity={0.85}>
+              <Feather name="share-2" size={16} color={theme.bg} />
+              <Text style={[s.shareBtnText, { color: theme.bg }]}>Convidar seguidores</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* Publicar novo tutorial */}
         <View style={s.section}>
-          <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 16 }]}>Novo Tutorial VIP</Text>
+          <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 16 }]}>Publicar Tutorial Exclusivo</Text>
           <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: theme.border }}>
             <TextInput
               style={[s.input, { color: theme.text, borderColor: theme.border, marginBottom: 12 }]}
@@ -174,42 +218,35 @@ export default function TeacherPro() {
 
         {/* Tutoriais publicados */}
         <View style={s.section}>
-          {(() => {
-            const myActivities = classActivities.filter(act => act.teacherId === user?.id);
-            return (
-              <>
-                <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 16 }]}>
-                  Publicados ({myActivities.length})
-                </Text>
+          <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 16 }]}>
+            Publicados ({myActivities.length})
+          </Text>
 
-                {myActivities.length === 0 ? (
-                  <View style={[s.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                    <Text style={{ color: theme.textMuted, fontSize: 13 }}>Nenhum tutorial publicado ainda.</Text>
-                  </View>
-                ) : (
-                  myActivities.map(act => (
-                    <View key={act.id} style={[s.activityCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                      <View style={[s.iconBox, { backgroundColor: theme.primaryLight }]}>
-                        <Feather name={act.type === 'Video' ? 'youtube' : 'file-text'} size={20} color={theme.primary} />
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{act.title}</Text>
-                        <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 2 }}>
-                          {act.type} · {new Date(act.createdAt).toLocaleDateString('pt-BR')}
-                        </Text>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </>
-            );
-          })()}
+          {myActivities.length === 0 ? (
+            <View style={[s.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={{ color: theme.textMuted, fontSize: 13 }}>Nenhum tutorial publicado ainda.</Text>
+            </View>
+          ) : (
+            myActivities.map(act => (
+              <View key={act.id} style={[s.activityCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <View style={[s.iconBox, { backgroundColor: theme.primaryLight }]}>
+                  <Feather name={act.type === 'Video' ? 'youtube' : 'file-text'} size={20} color={theme.primary} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{act.title}</Text>
+                  <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 2 }}>
+                    {act.type} · {new Date(act.createdAt).toLocaleDateString('pt-BR')}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         {/* Membros VIP */}
         <View style={s.section}>
           <Text style={[s.sectionTitle, { color: theme.text, marginBottom: 16 }]}>
-            Membros VIP ({managedStudents.length})
+            Aprendizes ({managedStudents.length})
           </Text>
 
           {/* Adicionar aluno */}
@@ -300,7 +337,14 @@ const s = StyleSheet.create({
   title:    { fontSize: 24, fontWeight: '900' },
   subtitle: { fontSize: 14, marginTop: 4 },
 
-  codeBox:   { marginTop: 24, padding: 20, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
+  statsRow:  { flexDirection: 'row', gap: 10, marginTop: 20 },
+  statCard:  { flex: 1, borderRadius: 14, borderWidth: 1, paddingVertical: 14, alignItems: 'center', gap: 4 },
+  statNum:   { fontSize: 22, fontWeight: '900' },
+  statLabel: { fontSize: 11, fontWeight: '600' },
+  shareBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 20, marginTop: 16, alignSelf: 'stretch' },
+  shareBtnText: { fontWeight: '800', fontSize: 13 },
+
+  codeBox:   { marginTop: 16, padding: 20, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
   codeLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 2, marginBottom: 8 },
   codeRow:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   codeText:  { fontSize: 32, fontWeight: '900', letterSpacing: 4 },

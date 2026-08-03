@@ -166,6 +166,13 @@ export class UserRepository {
     await signOut(auth);
   }
 
+  // [UPDATE] Atualização direta de campos no documento do usuário.
+  // Para fluxos otimistas (o estado local já foi atualizado) — não re-busca a sessão.
+  static async updateFields(userId, fields) {
+    if (!userId) throw new Error('Usuário não autenticado!');
+    await updateDoc(doc(db, 'users', userId), fields);
+  }
+
   // [UPDATE] Atualiza dados do Usuário (ex: foto, rank)
   static async updateUserSession(updates) {
     const currentUser = auth.currentUser;

@@ -745,6 +745,247 @@ Retorne APENAS JSON:
     }
   }
 
+  // Seed hash: mesmo usuário + mesmo dia → mesma ordem; dia diferente → embaralha de novo
+  static _userDailySeed(userId) {
+    const today = new Date().toISOString().split('T')[0];
+    const str = (userId || 'guest') + today;
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+    }
+    return Math.abs(h);
+  }
+
+  static _seededShuffle(array, seed) {
+    let s = seed >>> 0;
+    const rand = () => {
+      s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+      return (s >>> 0) / 0x100000000;
+    };
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  static _CACHE_KEY = '@discover_cache';
+  static _CACHE_TTL = 60 * 60 * 1000; // 1 hora
+
+  static async _fetchFromFirestore() {
+    const snap = await getDocs(query(collection(db, 'community_videos'), limit(300)));
+    const videos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    AsyncStorage.setItem(this._CACHE_KEY, JSON.stringify({ videos, fetchedAt: Date.now() })).catch(() => {});
+    return videos;
+  }
+
+  // Stale-while-revalidate: retorna cache imediatamente se existir, atualiza em background se vencido
+  static async getCommunityVideosForUser(userId, forceRefresh = false) {
+    const seed = this._userDailySeed(userId);
+
+    if (!forceRefresh) {
+      try {
+        const raw = await AsyncStorage.getItem(this._CACHE_KEY);
+        if (raw) {
+          const { videos, fetchedAt } = JSON.parse(raw);
+          if (videos?.length > 0) {
+            const isStale = Date.now() - fetchedAt > this._CACHE_TTL;
+            if (isStale) {
+              // Retorna dados velhos agora, atualiza cache em background
+              this._fetchFromFirestore().catch(() => {});
+            }
+            return this._seededShuffle(videos, seed);
+          }
+        }
+      } catch {}
+    }
+
+    // Sem cache: primeira abertura — busca e bloqueia até ter dados
+    const videos = await this._fetchFromFirestore();
+    return this._seededShuffle(videos, seed);
+  }
+
+  // ─── DESCOBERTA AO VIVO (nova visão: sem escrita no banco, sem Gemini) ─────
+  // Feed = RSS dos canais confiáveis (grátis, fresco) + banco já curado (leitura).
+  // Busca = YouTube/Invidious ao vivo com filtro de palavras-chave, resultados
+  // efêmeros (nada é salvo no Firestore).
+
+  static _LIVE_CACHE_KEY = '@discover_live_cache';
+  static _LIVE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 horas
+
+  // Normaliza vídeo de qualquer fonte (RSS/YouTube/Invidious) para o formato do feed
+  static _normalizeLive(v) {
+    return {
+      id: v.id,
+      videoId: v.id,
+      title: v.title,
+      description: v.description || '',
+      channelTitle: v.channelTitle || '',
+      channelId: v.channelId || '',
+      thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+      thumbnailUrl: v.thumbnail || `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+      duration: v.duration || 'Tutorial',
+      difficulty: this.classifyDifficulty(v.title, v.channelTitle, v.duration),
+      source: v.source || 'youtube',
+    };
+  }
+
+  // Filtro gratuito: exige menção a origami/dobradura e rejeita categorias conhecidas.
+  // Multilíngue: aceita tutoriais em japonês, russo, coreano, chinês etc.
+  static _isOrigamiVideo(v) {
+    const t = `${v.title || ''} ${v.description || ''} ${v.channelTitle || ''}`.toLowerCase();
+    if (this.REJECT_KEYWORDS.some(k => t.includes(k))) return false;
+    const positive = [
+      // Latino
+      'origami', 'paper fold', 'paperfold', 'dobradura', 'paper crane', 'dobrar papel', 'papiroflexia', 'tsuru',
+      // Japonês (kanji, hiragana, katakana)
+      '折り紙', 'おりがみ', 'オリガミ', '折紙',
+      // Chinês (simplificado e tradicional)
+      '折纸', '摺紙',
+      // Coreano
+      '종이접기',
+      // Russo / cirílico
+      'оригами',
+      // Árabe
+      'اوريغامي', 'فن طي الورق',
+    ];
+    return positive.some(k => t.includes(k));
+  }
+
+  static async _buildLiveFeed() {
+    const YT_KEY = process.env.EXPO_PUBLIC_YOUTUBE_API_KEY;
+
+    const [rssResult, bankResult] = await Promise.allSettled([
+      this.scanChannelsViaRSS(YT_KEY),
+      this._fetchFromFirestore(), // banco já curado — só leitura, nenhuma escrita nova
+    ]);
+
+    const rss  = rssResult.status  === 'fulfilled' ? rssResult.value  : [];
+    const bank = bankResult.status === 'fulfilled' ? bankResult.value : [];
+
+    // Canais confiáveis são 100% origami: aplica só o filtro negativo
+    const fresh = rss
+      .filter(v => !this.REJECT_KEYWORDS.some(k => (v.title || '').toLowerCase().includes(k)))
+      .map(v => this._normalizeLive(v));
+
+    // Mescla: RSS (fresco) tem prioridade; banco complementa sem duplicar
+    const map = new Map();
+    fresh.forEach(v => map.set(v.videoId, v));
+    bank.forEach(v => { if (v.videoId && !map.has(v.videoId)) map.set(v.videoId, v); });
+
+    const videos = [...map.values()];
+    if (videos.length > 0) {
+      AsyncStorage.setItem(this._LIVE_CACHE_KEY, JSON.stringify({ videos, fetchedAt: Date.now() })).catch(() => {});
+    }
+    return videos;
+  }
+
+  // Stale-while-revalidate: cache local 24h, atualiza em background quando vencido
+  static async getLiveFeedForUser(userId, forceRefresh = false) {
+    const seed = this._userDailySeed(userId);
+
+    if (!forceRefresh) {
+      try {
+        const raw = await AsyncStorage.getItem(this._LIVE_CACHE_KEY);
+        if (raw) {
+          const { videos, fetchedAt } = JSON.parse(raw);
+          if (videos?.length > 0) {
+            if (Date.now() - fetchedAt > this._LIVE_CACHE_TTL) {
+              this._buildLiveFeed().catch(() => {});
+            }
+            return this._seededShuffle(videos, seed);
+          }
+        }
+      } catch {}
+    }
+
+    const videos = await this._buildLiveFeed();
+    return this._seededShuffle(videos, seed);
+  }
+
+  // ─── Freemium: buscas ao vivo por dia (grátis = 3/dia, Pro = ilimitado) ───
+  static FREE_LIVE_SEARCHES_PER_DAY = 3;
+  static _SEARCH_USES_KEY = '@live_search_uses';
+
+  static async getLiveSearchesUsedToday() {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const raw = await AsyncStorage.getItem(this._SEARCH_USES_KEY);
+      if (!raw) return 0;
+      const { date, count } = JSON.parse(raw);
+      return date === today ? (count || 0) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  static async _trackLiveSearchUse() {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const used = await this.getLiveSearchesUsedToday();
+      await AsyncStorage.setItem(this._SEARCH_USES_KEY, JSON.stringify({ date: today, count: used + 1 }));
+    } catch {}
+  }
+
+  // Busca ao vivo no YouTube, forçada ao contexto de origami. Resultados efêmeros.
+  // Protegida por cota (fallback Invidious) e cache local por termo (24h).
+  // Buscas em cache não consomem o limite diário do plano gratuito.
+  static async searchOrigamiLive(userQuery, maxResults = 25, { isPro = false } = {}) {
+    const q = (userQuery || '').trim();
+    if (!q) return [];
+
+    const cacheKey = `@yt_search_${q.toLowerCase()}`;
+    try {
+      const raw = await AsyncStorage.getItem(cacheKey);
+      if (raw) {
+        const { videos, fetchedAt } = JSON.parse(raw);
+        if (videos?.length > 0 && Date.now() - fetchedAt < this._LIVE_CACHE_TTL) return videos;
+      }
+    } catch {}
+
+    // Limite freemium: só conta buscas que realmente vão à rede
+    if (!isPro) {
+      const used = await this.getLiveSearchesUsedToday();
+      if (used >= this.FREE_LIVE_SEARCHES_PER_DAY) {
+        const err = new Error('Limite diário de buscas ao vivo atingido');
+        err.code = 'SEARCH_LIMIT';
+        throw err;
+      }
+    }
+    await this._trackLiveSearchUse();
+
+    const YT_KEY = process.env.EXPO_PUBLIC_YOUTUBE_API_KEY;
+    // Força o contexto origami na query se o usuário não mencionou
+    const searchQuery = /origami|dobradura|papiroflexia/i.test(q) ? q : `origami ${q}`;
+
+    let results = [];
+    const quota = await this.getQuotaStatus();
+    const canUseYouTube = YT_KEY && (quota.used + QUOTA_COSTS.SEARCH + QUOTA_COSTS.VIDEOS_DETAILS) <= (DAILY_QUOTA - SAFETY_MARGIN);
+
+    if (canUseYouTube) {
+      const yt = await this.searchYouTube(YT_KEY, searchQuery, maxResults);
+      if (yt === 'QUOTA_EXCEEDED') {
+        await this.trackQuotaUsage(DAILY_QUOTA);
+        results = await this.searchViaInvidious(searchQuery, maxResults);
+      } else {
+        results = yt;
+      }
+    } else {
+      results = await this.searchViaInvidious(searchQuery, maxResults);
+    }
+
+    const filtered = (Array.isArray(results) ? results : [])
+      .filter(v => this._isOrigamiVideo(v))
+      .map(v => this._normalizeLive(v));
+
+    if (filtered.length > 0) {
+      AsyncStorage.setItem(cacheKey, JSON.stringify({ videos: filtered, fetchedAt: Date.now() })).catch(() => {});
+    }
+    return filtered;
+  }
+
+  // Mantido para compatibilidade com AdminDiscovery
   static async getCommunityVideos(limitCount = 20, lastDoc = null) {
     let q = query(collection(db, 'community_videos'), orderBy('addedAt', 'desc'), limit(limitCount));
     if (lastDoc) {

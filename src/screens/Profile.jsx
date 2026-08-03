@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
@@ -8,7 +8,7 @@ import { useApp } from '../context/AppContext';
 const { width } = Dimensions.get('window');
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, pendingProOpen, setPendingProOpen } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, soundsEnabled, updateSoundsEnabled, pendingProOpen, setPendingProOpen, scrollToTopSignal } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showRankSelector, setShowRankSelector] = useState(false);
@@ -18,6 +18,14 @@ export default function Profile() {
 
   const slideAnim = useRef(new Animated.Value(400)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const mainScrollRef = useRef(null);
+
+  // Tocar na aba Profile já ativa: rola de volta ao topo
+  useEffect(() => {
+    if (scrollToTopSignal?.route === 'Profile' && scrollToTopSignal.tick > 0) {
+      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  }, [scrollToTopSignal]);
 
   useEffect(() => {
     if (pendingProOpen) {
@@ -83,31 +91,67 @@ export default function Profile() {
   };
 
   const handleSaveNotifPrefs = async (newPrefs) => {
+    // expo-notifications não funciona no web — salva preferências sem agendar
+    if (Platform.OS === 'web') {
+      await updateNotifPrefs(newPrefs);
+      return;
+    }
+
     try {
       if (newPrefs.dailyReminder || newPrefs.streakAlert) {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permissão negada', 'Ative as notificações nas configurações do dispositivo para receber lembretes.');
+          Alert.alert(
+            'Permissão negada',
+            'Ative as notificações nas configurações do dispositivo para receber lembretes.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Abrir configurações', onPress: () => Linking.openSettings() },
+            ]
+          );
           return;
         }
       }
+
       await Notifications.cancelAllScheduledNotificationsAsync();
+
       if (newPrefs.dailyReminder) {
         const [h, m] = (newPrefs.reminderTime || '20:00').split(':').map(Number);
         await Notifications.scheduleNotificationAsync({
-          content: { title: 'Hora de dobrar!', body: 'Seu lembrete diário de origami está esperando.', sound: true },
-          trigger: { hour: h, minute: m, repeats: true },
+          content: {
+            title: 'Hora de dobrar! 🦢',
+            body: 'Seu lembrete diário de origami está esperando.',
+            sound: 'default',
+            ...(Platform.OS === 'android' && { channelId: 'origami-reminders' }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY,
+            hour: h,
+            minute: m,
+          },
         });
       }
+
       if (newPrefs.streakAlert) {
         await Notifications.scheduleNotificationAsync({
-          content: { title: 'Não quebre seu streak!', body: 'Pratique origami hoje para manter sua sequência.', sound: true },
-          trigger: { hour: 20, minute: 0, repeats: true },
+          content: {
+            title: 'Não quebre seu streak! 🔥',
+            body: 'Pratique origami hoje para manter sua sequência.',
+            sound: 'default',
+            ...(Platform.OS === 'android' && { channelId: 'origami-reminders' }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY,
+            hour: 20,
+            minute: 0,
+          },
         });
       }
+
       await updateNotifPrefs(newPrefs);
     } catch (e) {
       console.warn('Erro ao configurar notificações:', e);
+      Alert.alert('Erro', 'Não foi possível configurar as notificações. Tente novamente.');
     }
   };
 
@@ -138,7 +182,7 @@ export default function Profile() {
         </View>
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={mainScrollRef} style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View style={s.header}>
           <TouchableOpacity 
@@ -346,6 +390,19 @@ export default function Profile() {
                     thumbColor="#fff"
                   />
                 </View>
+                {/* Efeitos sonoros */}
+                <View style={[s.notifRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                  <View style={s.notifInfo}>
+                    <Text style={[s.notifLabel, { color: theme.text }]}>Efeitos sonoros</Text>
+                    <Text style={[s.notifDesc, { color: theme.textDim }]}>Sons ao favoritar e desbloquear conquistas</Text>
+                  </View>
+                  <Switch
+                    value={soundsEnabled}
+                    onValueChange={updateSoundsEnabled}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
                 <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowNotifications(false)}>
                   <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
                   <Feather name="arrow-left" size={20} color={theme.textDim} />
@@ -353,40 +410,67 @@ export default function Profile() {
               </View>
 
             ) : showProPage ? (
-              <View style={{ gap: 16 }}>
-                {/* Header */}
-                <View style={[s.proHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <Feather name="star" size={32} color={theme.primary} />
-                  <Text style={[s.proHeaderTitle, { color: theme.text }]}>Plano Pro</Text>
-                  <Text style={[s.proHeaderSub, { color: theme.textDim }]}>
-                    {user?.isPro ? 'Você já é um membro Pro!' : 'Acesso completo ao OrigamiApp'}
+              <View style={{ gap: 14 }}>
+                {/* Hero */}
+                <View style={[s.proHero, { backgroundColor: theme.primary + '18', borderColor: theme.primary + '55' }]}>
+                  <View style={[s.proHeroBadge, { backgroundColor: theme.primary }]}>
+                    <Feather name="star" size={14} color="#fff" />
+                    <Text style={s.proHeroBadgeText}>PRO</Text>
+                  </View>
+                  <Text style={[s.proHeroTitle, { color: theme.text }]}>
+                    {user?.isPro ? 'Você é Pro! 🎉' : 'Dobre sem limites'}
                   </Text>
+                  <Text style={[s.proHeroSub, { color: theme.textDim }]}>
+                    {user?.isPro
+                      ? 'Aproveite tudo que o OrigamiApp oferece.'
+                      : 'Biblioteca infinita, buscas ilimitadas e seu próprio estúdio de ensino.'}
+                  </Text>
+                  {!user?.isPro && (
+                    <View style={s.proPriceRow}>
+                      <Text style={[s.proPrice, { color: theme.primary }]}>R$ 9,90</Text>
+                      <Text style={[s.proPricePeriod, { color: theme.textDim }]}>/mês</Text>
+                    </View>
+                  )}
                 </View>
-                {/* Benefits */}
+
+                {/* Comparação Grátis vs Pro */}
                 <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={s.compareHeader}>
+                    <Text style={[s.compareFeatureCol, { color: theme.textDim, fontSize: 11, fontWeight: '800' }]}>RECURSO</Text>
+                    <Text style={[s.compareCol, { color: theme.textDim, fontSize: 11, fontWeight: '800' }]}>GRÁTIS</Text>
+                    <Text style={[s.compareCol, { color: theme.primary, fontSize: 11, fontWeight: '800' }]}>PRO</Text>
+                  </View>
                   {[
-                    { icon: 'award',      text: 'Área exclusiva de professor' },
-                    { icon: 'users',      text: 'Gestão de turmas e alunos' },
-                    { icon: 'share-2',    text: 'Publique PDFs e atividades' },
-                    { icon: 'bookmark',   text: 'Sem limite de origamis salvos' },
-                    { icon: 'headphones', text: 'Suporte prioritário' },
-                  ].map((b, i) => (
-                    <View key={b.text} style={[s.benefitRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                      <View style={[s.benefitIcon, { backgroundColor: theme.primaryLight }]}>
-                        <Feather name={b.icon} size={18} color={theme.primary} />
+                    { f: 'Origamis salvos',          free: '10',    pro: '∞' },
+                    { f: 'Buscas ao vivo no YouTube', free: '3/dia', pro: '∞' },
+                    { f: 'Retomar de onde parou',     free: true,    pro: true },
+                    { f: 'Conquistas e níveis',       free: true,    pro: true },
+                    { f: 'Estúdio do Origamista',     free: false,   pro: true },
+                    { f: 'Turmas e atividades',       free: false,   pro: true },
+                  ].map((row) => (
+                    <View key={row.f} style={[s.compareRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                      <Text style={[s.compareFeatureCol, { color: theme.text, fontSize: 13 }]}>{row.f}</Text>
+                      <View style={s.compareCol}>
+                        {typeof row.free === 'boolean'
+                          ? <Feather name={row.free ? 'check' : 'x'} size={15} color={row.free ? '#22C55E' : theme.textMuted} />
+                          : <Text style={{ color: theme.textDim, fontSize: 13, fontWeight: '600' }}>{row.free}</Text>}
                       </View>
-                      <Text style={[s.benefitText, { color: theme.text }]}>{b.text}</Text>
-                      <Feather name="check" size={16} color={theme.primary} />
+                      <View style={s.compareCol}>
+                        {typeof row.pro === 'boolean'
+                          ? <Feather name="check" size={15} color={theme.primary} />
+                          : <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '800' }}>{row.pro}</Text>}
+                      </View>
                     </View>
                   ))}
                 </View>
+
                 {/* CTA */}
                 {!user?.isPro ? (
                   <TouchableOpacity
                     style={[s.proBtn, { backgroundColor: theme.primary }]}
                     onPress={() => { upgradeToPro(true); setShowProPage(false); handleCloseSettings(); }}
                   >
-                    <Text style={[s.proBtnText, { color: '#fff' }]}>Tornar-se Pro</Text>
+                    <Text style={[s.proBtnText, { color: '#fff' }]}>Assinar o Pro  →</Text>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -395,6 +479,11 @@ export default function Profile() {
                   >
                     <Text style={[s.proBtnText, { color: theme.danger }]}>Cancelar assinatura</Text>
                   </TouchableOpacity>
+                )}
+                {!user?.isPro && (
+                  <Text style={{ color: theme.textMuted, fontSize: 11, textAlign: 'center' }}>
+                    Cancele quando quiser. Seus origamis salvos permanecem seus.
+                  </Text>
                 )}
                 <TouchableOpacity style={[s.linkRow, { borderTopWidth: 0 }]} onPress={() => setShowProPage(false)}>
                   <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
@@ -544,7 +633,21 @@ const s = StyleSheet.create({
   proHeaderSub: { fontSize: 14, textAlign: 'center' },
   benefitRow: { flexDirection: 'row', alignItems: 'center', padding: 16 },
   benefitIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  benefitText: { flex: 1, fontSize: 15, fontWeight: '600' },
+  benefitText: { fontSize: 15, fontWeight: '600' },
+
+  // Paywall Pro
+  proHero: { borderRadius: 18, borderWidth: 1.5, padding: 20, alignItems: 'center' },
+  proHeroBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, marginBottom: 12 },
+  proHeroBadgeText: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
+  proHeroTitle: { fontSize: 24, fontWeight: '900', marginBottom: 6, textAlign: 'center' },
+  proHeroSub: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  proPriceRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: 14 },
+  proPrice: { fontSize: 32, fontWeight: '900' },
+  proPricePeriod: { fontSize: 14, fontWeight: '600', marginBottom: 5 },
+  compareHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 },
+  compareRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  compareFeatureCol: { flex: 1 },
+  compareCol: { width: 60, alignItems: 'center', justifyContent: 'center', textAlign: 'center' },
   proBtn: { borderRadius: 16, padding: 18, alignItems: 'center' },
   proBtnText: { fontSize: 17, fontWeight: '800' },
 });

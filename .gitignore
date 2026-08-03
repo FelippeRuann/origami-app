@@ -1,4 +1,5 @@
 node_modules/
+.expo/
 build/
 dist/
 coverage/
@@ -7,4 +8,9 @@ coverage/
 .env*
 !.env.example
 .claude
+eas.json
+storage.rules
+firebase.json
+.firebaserc
+firestore.rules
 eas.json

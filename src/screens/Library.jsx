@@ -4,7 +4,6 @@ import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../context/AppContext';
 import YoutubePlayer from 'react-native-youtube-iframe';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import { storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -14,7 +13,7 @@ const { width } = Dimensions.get('window');
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://uploadpdf-ulb2s3fzra-uc.a.run.app';
 
 export default function Library() {
-  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle, navigateToPro } = useApp();
+  const { theme, user, setFoldingOrigami, importedProjects, addImportedProject, removeImportedProject, updateVideoProgress, classActivities, joinClass, studentSubscriptions, setIsFullscreenVideo, savedOrigamis, unsaveOrigami, isInitialLoading, updateYoutubeVideoTitle, navigateToPro, scrollToTopSignal } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [convertedFiles, setConvertedFiles] = useState([]);
@@ -26,6 +25,14 @@ export default function Library() {
 
   const playerRef = useRef(null);
   const completionTrackedRef = useRef(false);
+  const mainScrollRef = useRef(null);
+
+  // Tocar na aba Library já ativa: rola de volta ao topo
+  useEffect(() => {
+    if (scrollToTopSignal?.route === 'Library' && scrollToTopSignal.tick > 0) {
+      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    }
+  }, [scrollToTopSignal]);
   
   // Mescla projetos importados com origamis salvos da comunidade em uma única lista
   const allProjects = React.useMemo(() => {
@@ -95,35 +102,41 @@ export default function Library() {
     p.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  useEffect(() => {
-    if (playingVideo) {
-      ScreenOrientation.unlockAsync();
-    } else {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-    }
-  }, [playingVideo]);
-
-  // Detecta minuto final do vídeo (polling a cada 10s)
+  // Acompanha a posição do vídeo (para retomar depois) e detecta o minuto final
+  const currentTimeRef = useRef(0);
   useEffect(() => {
     if (!playingVideo) return;
     completionTrackedRef.current = false;
+    currentTimeRef.current = playingVideo.watchedSeconds || 0;
 
     const interval = setInterval(async () => {
-      if (completionTrackedRef.current || !playerRef.current) return;
+      if (!playerRef.current) return;
       try {
         const [currentTime, duration] = await Promise.all([
           playerRef.current.getCurrentTime(),
           playerRef.current.getDuration(),
         ]);
-        if (duration > 0 && currentTime >= duration - 60) {
+        if (currentTime > 0) currentTimeRef.current = currentTime;
+        if (!completionTrackedRef.current && duration > 0 && currentTime >= duration - 60) {
           completionTrackedRef.current = true;
-          updateVideoProgress(playingVideo.id, Math.floor(currentTime), true);
+          // Concluído: zera a posição para recomeçar do início na próxima vez
+          updateVideoProgress(playingVideo.id, 0, true);
         }
       } catch {}
-    }, 10000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [playingVideo]);
+
+  // Salva a posição atual e fecha o player — é isso que permite "retomar de onde parou"
+  const closePlayer = () => {
+    const isSavedProject = playingVideo && importedProjects.some(p => p.id === playingVideo.id);
+    if (isSavedProject && !completionTrackedRef.current && currentTimeRef.current > 5) {
+      updateVideoProgress(playingVideo.id, Math.floor(currentTimeRef.current));
+    }
+    setIsFullscreenVideo(false);
+    setPlayingVideo(null);
+  };
 
   if (isInitialLoading) {
     return (
@@ -406,7 +419,7 @@ export default function Library() {
          {!isLandscape && (
            <TouchableOpacity
              style={{flexDirection: 'row', alignItems: 'center', padding: 20}}
-             onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
+             onPress={closePlayer}
            >
               <Feather name="arrow-left" size={24} color={theme.text} />
               <Text style={{color: theme.text, fontSize: 18, marginLeft: 10, fontWeight: 'bold'}}>Voltar à Biblioteca</Text>
@@ -419,6 +432,7 @@ export default function Library() {
               width={windowDims.width}
               play={true}
               videoId={playingVideo.videoId}
+              initialPlayerParams={{ start: Math.floor(playingVideo.watchedSeconds || 0) }}
               webViewProps={{
                 originWhitelist: ['*'],
                 allowsInlineMediaPlayback: true,
@@ -426,14 +440,21 @@ export default function Library() {
               onChangeState={(state) => {
                 if (state === 'ended' && !completionTrackedRef.current) {
                   completionTrackedRef.current = true;
-                  updateVideoProgress(playingVideo.id, 100, true);
+                  // Concluído: zera a posição para recomeçar do início na próxima vez
+                  updateVideoProgress(playingVideo.id, 0, true);
+                } else if (state === 'paused') {
+                  // Pausou: salva a posição imediatamente
+                  const isSavedProject = importedProjects.some(p => p.id === playingVideo.id);
+                  if (isSavedProject && currentTimeRef.current > 5) {
+                    updateVideoProgress(playingVideo.id, Math.floor(currentTimeRef.current));
+                  }
                 }
               }}
             />
             {isLandscape && (
               <TouchableOpacity
                 style={{ position: 'absolute', top: 20, left: 20, backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 20 }}
-                onPress={() => { setIsFullscreenVideo(false); setPlayingVideo(null); }}
+                onPress={closePlayer}
               >
                 <Feather name="arrow-left" size={24} color="white" />
               </TouchableOpacity>
@@ -442,8 +463,8 @@ export default function Library() {
          {!isLandscape && (
            <View style={{padding: 20}}>
               <Text style={{color: theme.text, fontSize: 22, fontWeight: 'bold'}}>{playingVideo.title}</Text>
-              <Text style={{color: theme.textDim, fontSize: 14, marginTop: 10}}>
-                 O progresso é salvo no banco quando você assiste!
+              <Text style={{color: theme.textDim, fontSize: 14, marginTop: 12}}>
+                 O progresso é salvo automaticamente — retome de onde parou a qualquer momento.
               </Text>
            </View>
          )}
@@ -481,9 +502,10 @@ export default function Library() {
         </View>
       </View>
 
-      <ScrollView 
-        style={s.scroll} 
-        contentContainerStyle={s.scrollContent} 
+      <ScrollView
+        ref={mainScrollRef}
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
 
@@ -559,7 +581,7 @@ export default function Library() {
                   </View>
                   <View style={s.fileInfo}>
                     <Text style={[s.fileTitle, { color: theme.text }]} numberOfLines={1}>{p.title?.replace(/\.fold$/, '')}</Text>
-                    <Text style={[s.fileSize, { color: theme.textDim }]}>{p.type === 'youtube' ? (p.watchedSeconds ? `Parou em: ${p.watchedSeconds}s` : 'Salvo') : 'Progresso: ' + p.progress} • {p.date}</Text>
+                    <Text style={[s.fileSize, { color: theme.textDim }]}>{p.type === 'youtube' ? (p.watchedSeconds ? `Parou em ${Math.floor(p.watchedSeconds / 60)}:${String(Math.floor(p.watchedSeconds % 60)).padStart(2, '0')}` : 'Salvo') : 'Progresso: ' + p.progress} • {p.date}</Text>
                   </View>
                 </TouchableOpacity>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -651,30 +673,40 @@ export default function Library() {
           </View>
         )}
 
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 24 }}>
-          <TextInput
-            style={[s.inputObj, { flex: 1, backgroundColor: theme.surface, color: theme.text, borderColor: theme.border }]}
-            placeholder="Código do Origamista (ex: A3F2-B19C)"
-            placeholderTextColor={theme.textDim}
-            value={inviteCode}
-            autoCapitalize="characters"
-            maxLength={9}
-            onChangeText={(t) => setInviteCode(formatInviteCode(t))}
-          />
-          <TouchableOpacity
-            style={{ backgroundColor: theme.primary, paddingHorizontal: 16, borderRadius: 12, justifyContent: 'center' }}
-            onPress={async () => {
-              const res = await joinClass(inviteCode.toUpperCase());
-              if (res.success) {
-                Alert.alert('Seguindo!', res.message);
-                setInviteCode('');
-              } else {
-                Alert.alert('Erro', res.error);
-              }
-            }}
-          >
-            <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Seguir</Text>
-          </TouchableOpacity>
+        <View style={[s.formCard, { backgroundColor: theme.surface, borderColor: theme.border, marginBottom: 24 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Feather name="user-plus" size={16} color={theme.primary} />
+            <Text style={{ fontSize: 14, color: theme.text, fontWeight: '700' }}>Seguir um novo origamista</Text>
+          </View>
+          <Text style={{ fontSize: 12, color: theme.textDim, marginBottom: 12 }}>
+            Peça o código de convite a quem você quer seguir e receba os tutoriais exclusivos dele.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TextInput
+              style={[s.inputObj, { flex: 1, backgroundColor: theme.bg, color: theme.text, borderColor: theme.border, marginBottom: 0 }]}
+              placeholder="Ex: A3F2-B19C"
+              placeholderTextColor={theme.textDim}
+              value={inviteCode}
+              autoCapitalize="characters"
+              maxLength={9}
+              onChangeText={(t) => setInviteCode(formatInviteCode(t))}
+            />
+            <TouchableOpacity
+              style={{ backgroundColor: theme.primary, paddingHorizontal: 18, borderRadius: 12, justifyContent: 'center', opacity: inviteCode.length >= 9 ? 1 : 0.5 }}
+              disabled={inviteCode.length < 9}
+              onPress={async () => {
+                const res = await joinClass(inviteCode.toUpperCase());
+                if (res.success) {
+                  Alert.alert('Seguindo!', res.message);
+                  setInviteCode('');
+                } else {
+                  Alert.alert('Erro', res.error);
+                }
+              }}
+            >
+              <Text style={{ color: theme.bg, fontWeight: 'bold' }}>Seguir</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={s.divider} />

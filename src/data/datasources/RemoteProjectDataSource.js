@@ -33,6 +33,12 @@ export class RemoteProjectDataSource {
     }
   }
 
+  // Atualiza campos pontuais de um projeto (ex: posição do vídeo para retomar depois)
+  static async saveProgress(userId, projectId, fields) {
+    const docRef = doc(this.getCollectionRef(userId), projectId.toString());
+    await setDoc(docRef, fields, { merge: true });
+  }
+
   static async getAll(userId) {
     try {
       if (!userId) return [];

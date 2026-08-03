@@ -2,9 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Dimensions, Animated, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
+import { haptic } from '../utils/haptics';
+import { sound } from '../utils/sounds';
 
 export default function Layout({ screens, currentRoute, setCurrentRoute }) {
-  const { user, theme, isFullscreenVideo } = useApp();
+  const { user, theme, isFullscreenVideo, requestScrollToTop, hapticsEnabled, soundsEnabled } = useApp();
 
   const scrollViewRef = useRef(null);
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -27,7 +29,7 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
   ];
 
   if (user?.isPro) {
-    tabs.push({ id: 'TeacherPro', label: 'Pro', icon: 'award' });
+    tabs.push({ id: 'Pro', label: 'Pro', icon: 'award' });
   }
 
   tabs.push({ id: 'Profile', label: 'Profile', icon: 'user' });
@@ -62,9 +64,14 @@ export default function Layout({ screens, currentRoute, setCurrentRoute }) {
   };
 
   const handleTabPress = (tabId) => {
+    haptic.light(hapticsEnabled);
+    sound.play('tap', soundsEnabled);
     if (tabId !== currentRoute) {
       isTabPress.current = true;
       setCurrentRoute(tabId);
+    } else {
+      // Tocar na aba já ativa: rola a tela de volta ao topo
+      requestScrollToTop(tabId);
     }
   };
 

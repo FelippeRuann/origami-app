@@ -13,13 +13,12 @@
       "adaptiveIcon": {
         "backgroundColor": "#ffffff"
       },
-      "navigationBar": {
-        "visible": "sticky-immersive"
-      },
       "package": "com.felppitos.origamiapp"
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font",
+      "expo-audio"
     ],
     "extra": {
       "eas": {

@@ -13,7 +13,7 @@ import Auth from './src/screens/Auth';
 import Discover from './src/screens/Discover';
 import Library from './src/screens/Library';
 import Profile from './src/screens/Profile';
-import TeacherPro from './src/screens/TeacherPro';
+import Pro from './src/screens/Pro';
 import AdminDiscovery from './src/screens/AdminDiscovery';
 import DetailScreen from './src/screens/DetailScreen';
 import FoldingScreen from './src/screens/FoldingScreen';
@@ -82,7 +82,7 @@ function MainNavigator() {
     const screens = {
       Discover: <Discover />,
       Library: <Library />,
-      TeacherPro: <TeacherPro />,
+      Pro: <Pro />,
       Profile: <Profile />
     };
 

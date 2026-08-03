@@ -1,21 +1,36 @@
 import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import { lightTheme, darkTheme } from '../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+
+  if (Platform.OS === 'android') {
+    Notifications.setNotificationChannelAsync('origami-reminders', {
+      name: 'Lembretes de Origami',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#22C55E',
+      sound: 'default',
+    });
+  }
+}
 
 // Clean Architecture - Importando Casos de Uso e Repositórios
 import { AuthUseCase } from '../domain/usecases/AuthUseCase';
 import { ManageProjectsUseCase } from '../domain/usecases/ManageProjectsUseCase';
 import { LocalProjectDataSource } from '../data/datasources/LocalProjectDataSource';
 import { RemoteProjectDataSource } from '../data/datasources/RemoteProjectDataSource';
+import { UserRepository } from '../data/repositories/UserRepository';
+import { FavoritesRepository } from '../data/repositories/FavoritesRepository';
 import { storage } from '../firebase';
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 
@@ -116,6 +131,10 @@ export function AppProvider({ children }) {
         // Tema
         const savedTheme = await AsyncStorage.getItem('@dark_mode');
         if (savedTheme !== null) setIsDarkMode(savedTheme === 'true');
+
+        // Efeitos sonoros
+        const savedSounds = await AsyncStorage.getItem('@sounds_enabled');
+        if (savedSounds !== null) setSoundsEnabled(savedSounds === 'true');
 
         // Favoritos (YouTube) - Carrega o cache do último usuário conhecido IMEDIATAMENTE
         const lastUid = await AsyncStorage.getItem('@last_user_uid');
@@ -316,13 +335,7 @@ export function AppProvider({ children }) {
       
       // Persiste no Firestore (O Firebase enfileira para salvar mesmo offline!)
       try {
-        const { collection, doc, setDoc } = await import('firebase/firestore');
-        const { db } = await import('../firebase');
-        const docRef = doc(db, 'users', user.id, 'favorites', origami.id.toString());
-        await setDoc(docRef, {
-          ...origami,
-          savedAt: new Date().toISOString()
-        });
+        await FavoritesRepository.save(user.id, origami);
       } catch (e) {
         console.warn("Salvando localmente, será sincronizado quando houver internet.");
       }
@@ -336,9 +349,7 @@ export function AppProvider({ children }) {
     const updatedUser = { ...user, ...updates };
     setUser(updatedUser);
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', user.id), updates);
+      await UserRepository.updateFields(user.id, updates);
     } catch (e) {
       console.warn("Erro ao salvar upgrade Pro:", e);
     }
@@ -350,9 +361,7 @@ export function AppProvider({ children }) {
     const updates = { isPro: false, isTeacher: false };
     setUser({ ...user, ...updates });
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', user.id), updates);
+      await UserRepository.updateFields(user.id, updates);
     } catch (e) {
       console.warn("Erro ao remover Pro:", e);
     }
@@ -364,13 +373,9 @@ export function AppProvider({ children }) {
     setSavedOrigamis(newSaved);
     await AsyncStorage.setItem(`@favorites_${user.id}`, JSON.stringify(newSaved));
     
-    // Firestore (Non-blocking deletion for better offline responsiveness)
-    import('firebase/firestore').then(({ doc, deleteDoc }) => {
-      import('../firebase').then(({ db }) => {
-        deleteDoc(doc(db, 'users', user.id, 'favorites', origamiId.toString())).catch(e => {
-          console.warn("Remoção na nuvem pendente (Offline):", e);
-        });
-      });
+    // Firestore (não-bloqueante para melhor resposta offline)
+    FavoritesRepository.remove(user.id, origamiId).catch(e => {
+      console.warn("Remoção na nuvem pendente (Offline):", e);
     });
   };
 
@@ -420,14 +425,26 @@ export function AppProvider({ children }) {
     setImportedProjects(updatedList);
     if (user?.id) await AsyncStorage.setItem(`@origami_projects_${user.id}`, JSON.stringify(updatedList));
 
+    // Persiste a posição na nuvem (merge) para o snapshot em tempo real não sobrescrever.
+    // Só para projetos da biblioteca — evita criar documentos órfãos para vídeos de professores.
+    const isLibraryProject = importedProjects.some(p => p.id === projectId);
+    if (user?.id && isLibraryProject) {
+      try {
+        await RemoteProjectDataSource.saveProgress(user.id, projectId, {
+          watchedSeconds: secondsWatched,
+          progress: secondsWatched > 0 ? 'Continuar assistindo' : '0%',
+        });
+      } catch (e) {
+        console.warn('Posição do vídeo salva localmente, sync pendente:', e);
+      }
+    }
+
     if (markAsWatched && user) {
       const newCount = (user.watchedVideos || 0) + 1;
       const updatedUser = { ...user, watchedVideos: newCount };
       setUser(updatedUser);
       try {
-        const { doc, updateDoc } = await import('firebase/firestore');
-        const { db } = await import('../firebase');
-        await updateDoc(doc(db, 'users', user.id), { watchedVideos: newCount });
+        await UserRepository.updateFields(user.id, { watchedVideos: newCount });
       } catch (e) {
         console.warn("watchedVideos sync pendente:", e);
       }
@@ -442,8 +459,12 @@ export function AppProvider({ children }) {
   const [teacherCode, setTeacherCode] = useState('PRO-A1B2');
   const [studentSubscriptions, setStudentSubscriptions] = useState([]);
   const [isFullscreenVideo, setIsFullscreenVideo] = useState(false);
+  // Sinal para as telas rolarem ao topo quando o usuário toca na aba já ativa
+  const [scrollToTopSignal, setScrollToTopSignal] = useState({ route: null, tick: 0 });
+  const requestScrollToTop = (route) => setScrollToTopSignal(prev => ({ route, tick: prev.tick + 1 }));
   const [notifPrefs, setNotifPrefs] = useState({ dailyReminder: false, reminderTime: '20:00', streakAlert: false });
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [soundsEnabled, setSoundsEnabled] = useState(true);
   const [newAchievement, setNewAchievement] = useState(null);
 
   const _loadedUid       = useRef(null);
@@ -863,9 +884,7 @@ export function AppProvider({ children }) {
     setUser(updatedUser);
 
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', u.id), updatedFields);
+      await UserRepository.updateFields(u.id, updatedFields);
     } catch (e) {
       console.warn("Streak salvo localmente, pendente sync:", e);
     }
@@ -925,9 +944,7 @@ export function AppProvider({ children }) {
     setUser(updatedUser);
 
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', u.id), { achievements: updatedAchievements, ...rankUpdate });
+      await UserRepository.updateFields(u.id, { achievements: updatedAchievements, ...rankUpdate });
     } catch (e) {
       console.warn("Conquistas salvas localmente, pendente sync:", e);
     }
@@ -938,9 +955,7 @@ export function AppProvider({ children }) {
     const updatedUser = { ...user, rank: newRank };
     setUser(updatedUser);
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', user.id), { rank: newRank });
+      await UserRepository.updateFields(user.id, { rank: newRank });
     } catch (e) {
       console.warn("Rank salvo localmente:", e);
     }
@@ -951,14 +966,17 @@ export function AppProvider({ children }) {
     if (user) await AsyncStorage.setItem(`@haptics_${user.id}`, JSON.stringify(val));
   };
 
+  const updateSoundsEnabled = async (val) => {
+    setSoundsEnabled(val);
+    await AsyncStorage.setItem('@sounds_enabled', val.toString());
+  };
+
   const updateNotifPrefs = async (newPrefs) => {
     if (!user) return;
     setNotifPrefs(newPrefs);
     await AsyncStorage.setItem(`@notif_prefs_${user.id}`, JSON.stringify(newPrefs));
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', user.id), { notificationPrefs: newPrefs });
+      await UserRepository.updateFields(user.id, { notificationPrefs: newPrefs });
     } catch (e) {
       console.warn('Notif prefs saved locally:', e);
     }
@@ -969,9 +987,7 @@ export function AppProvider({ children }) {
     const updatedUser = { ...user, achievements: [...(user.achievements || []), achievementId] };
     setUser(updatedUser);
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
-      await updateDoc(doc(db, 'users', user.id), { achievements: updatedUser.achievements });
+      await UserRepository.updateFields(user.id, { achievements: updatedUser.achievements });
     } catch (e) {
       console.warn("Conquista salva localmente:", e);
     }
@@ -1009,22 +1025,13 @@ export function AppProvider({ children }) {
 
       // Sincroniza favoritação no Firestore
       try {
-        const { doc, setDoc } = await import('firebase/firestore');
-        const { db } = await import('../firebase');
-        
         const targetFav = updatedSaved.find(o => {
           const idString = o.id?.toString() || o.videoId || '';
           return idString === projectId || o.videoId === projectId || o.id === projectId;
         });
 
         if (targetFav) {
-          const docId = targetFav.id?.toString() || targetFav.videoId || 'unknown';
-          const docRef = doc(db, 'users', userId, 'favorites', docId);
-          await setDoc(docRef, {
-            ...targetFav,
-            title: newTitle,
-            savedAt: new Date().toISOString()
-          }, { merge: true });
+          await FavoritesRepository.updateTitle(userId, targetFav, newTitle);
         }
       } catch (e) {
         console.warn("Sincronização offline de favoritos pendente:", e);
@@ -1043,12 +1050,14 @@ export function AppProvider({ children }) {
       updateVideoProgress,
       currentRoute, setCurrentRoute,
       isFullscreenVideo, setIsFullscreenVideo,
+      scrollToTopSignal, requestScrollToTop,
       savedOrigamis, saveOrigami, unsaveOrigami,
       projects, documents, activities, classActivities, teacherCode, studentSubscriptions, publishActivity, joinClass,
       upgradeToPro, downgradeFromPro, managedStudents, addStudent, removeStudent, updateYoutubeVideoTitle,
       updateStreak, unlockAchievement, checkAchievements, ACHIEVEMENT_DEFS, updateRank,
       notifPrefs, updateNotifPrefs,
       hapticsEnabled, updateHapticsEnabled,
+      soundsEnabled, updateSoundsEnabled,
       newAchievement, setNewAchievement,
       pendingProOpen, setPendingProOpen, navigateToPro,
       resetOobCode, setResetOobCode
