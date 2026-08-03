@@ -68,11 +68,45 @@ function nms(dets) {
   return keep;
 }
 
+// Ordena as detecções na ordem de leitura (esquerda→direita, linha a linha).
+// Diagramas de origami são grades: ordenar só por y embaralha os passos de uma
+// mesma linha, porque eles diferem por poucos pixels na vertical. A altura da
+// faixa vem da mediana das caixas, então se adapta ao layout de cada página.
+export function sortReadingOrder(dets) {
+  if (dets.length < 2) return dets;
+
+  const heights = dets.map(d => d.box[3] - d.box[1]).sort((a, b) => a - b);
+  const medianHeight = heights[Math.floor(heights.length / 2)];
+  const rowTolerance = medianHeight * 0.5;
+
+  const byTop = [...dets].sort((a, b) => a.box[1] - b.box[1]);
+  const rows = [];
+  for (const det of byTop) {
+    const row = rows[rows.length - 1];
+    const rowTop = row?.[0].box[1];
+    if (row && det.box[1] - rowTop < rowTolerance) row.push(det);
+    else rows.push([det]);
+  }
+
+  return rows.flatMap(row => row.sort((a, b) => a.box[0] - b.box[0]));
+}
+
 async function detectBoxes(imagePath, origWidth, origHeight) {
   const session = await getSession();
 
+  // Letterbox (proporção preservada + preenchimento), que é como o YOLO treina.
+  // Usar fit:'fill' achatava a página num quadrado e a distorção derrubava a
+  // taxa de detecção — passos deixavam de ser encontrados.
+  const ratio = Math.min(INPUT_SIZE / origWidth, INPUT_SIZE / origHeight);
+  const padX = (INPUT_SIZE - origWidth * ratio) / 2;
+  const padY = (INPUT_SIZE - origHeight * ratio) / 2;
+
   const { data: rgb } = await sharp(imagePath)
-    .resize(INPUT_SIZE, INPUT_SIZE, { fit: 'fill' })
+    .resize(INPUT_SIZE, INPUT_SIZE, {
+      fit: 'contain',
+      position: 'centre',
+      background: { r: 114, g: 114, b: 114 },
+    })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -91,23 +125,30 @@ async function detectBoxes(imagePath, origWidth, origHeight) {
   const raw = out[session.outputNames[0]].data; // [1, 6, 8400]
   const N = 8400;
 
-  const scaleX = origWidth / INPUT_SIZE;
-  const scaleY = origHeight / INPUT_SIZE;
+  // Desfaz o letterbox: tira o preenchimento antes de reverter a escala.
+  const toOrigX = v => (v - padX) / ratio;
+  const toOrigY = v => (v - padY) / ratio;
   const dets = [];
+  let maxConf = 0;
 
   for (let i = 0; i < N; i++) {
     const xc = raw[0*N+i], yc = raw[1*N+i], w = raw[2*N+i], h = raw[3*N+i];
     const cCover = raw[4*N+i], cStep = raw[5*N+i];
     const conf = Math.max(cCover, cStep);
+    if (conf > maxConf) maxConf = conf;
     if (conf < CONF_THRESHOLD) continue;
     const classId = cCover > cStep ? CLASS_COVER : CLASS_STEP;
-    const x1 = Math.max(0, Math.round((xc - w/2) * scaleX));
-    const y1 = Math.max(0, Math.round((yc - h/2) * scaleY));
-    const x2 = Math.min(origWidth,  Math.round((xc + w/2) * scaleX));
-    const y2 = Math.min(origHeight, Math.round((yc + h/2) * scaleY));
+    const x1 = Math.max(0, Math.round(toOrigX(xc - w/2)));
+    const y1 = Math.max(0, Math.round(toOrigY(yc - h/2)));
+    const x2 = Math.min(origWidth,  Math.round(toOrigX(xc + w/2)));
+    const y2 = Math.min(origHeight, Math.round(toOrigY(yc + h/2)));
     if (x2 - x1 < 10 || y2 - y1 < 10) continue;
     dets.push({ classId, box: [x1, y1, x2, y2], conf });
   }
+
+  // Se a confiança máxima ficar logo abaixo do limiar, o problema é calibração,
+  // não o modelo — este log é o que permite distinguir os dois casos.
+  console.log(`Confiança máxima na página: ${maxConf.toFixed(3)} (limiar ${CONF_THRESHOLD}), ${dets.length} candidato(s).`);
 
   return nms(dets);
 }
@@ -159,7 +200,8 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
     if (dets.length > 0) {
       // YOLO detectou regiões — usa bounding boxes reais
       const covers = dets.filter(d => d.classId === CLASS_COVER).sort((a, b) => a.box[1] - b.box[1]);
-      const steps  = dets.filter(d => d.classId === CLASS_STEP).sort((a, b) => a.box[1] - b.box[1]);
+      const steps  = sortReadingOrder(dets.filter(d => d.classId === CLASS_STEP));
+      console.log(`Página ${pageIndex + 1}: ${steps.length} passo(s), ${covers.length} capa(s) detectada(s).`);
 
       for (const det of covers) {
         const [x1, y1, x2, y2] = det.box;
@@ -176,6 +218,7 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
       }
     } else {
       // Fallback: página 0 = capa, demais = metade superior e inferior
+      console.log(`Página ${pageIndex + 1}: nenhuma detecção acima de ${CONF_THRESHOLD} — usando fallback de metades.`);
       if (pageIndex === 0) {
         const cropPath = path.join(outputDir, 'cover.jpg');
         await sharp(imgPath).jpeg().toFile(cropPath);
