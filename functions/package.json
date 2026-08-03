@@ -15,11 +15,11 @@
   "main": "index.js",
   "dependencies": {
     "@google/genai": "^2.6.0",
-    "@napi-rs/canvas": "^1.0.0",
+    "@napi-rs/canvas": "^0.1.100",
     "adm-zip": "^0.5.17",
+    "busboy": "^1.6.0",
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.0.0",
-    "multer": "^2.1.1",
     "onnxruntime-node": "^1.21.0",
     "pdfjs-dist": "^5.7.284",
     "sharp": "^0.34.5"

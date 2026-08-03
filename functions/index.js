@@ -1,10 +1,11 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { GoogleGenAI } from '@google/genai';
-import multer from 'multer';
+import Busboy from 'busboy';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import crypto from 'crypto';
 import { processPdf } from './lib/processPdf.js';
 import { createFoldFile } from './lib/foldFormat.js';
 
@@ -13,7 +14,62 @@ export { findTeacherByCode, findStudentByEmail } from './lib/userLookup.js';
 
 setGlobalOptions({ maxInstances: 5 });
 
-const upload = multer({ dest: os.tmpdir() });
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+// gemini-2.0-flash e 2.5-flash foram descontinuados e respondem 404 neste projeto.
+const GEMINI_MODEL = 'gemini-3.5-flash';
+
+// Em Cloud Functions v2 o runtime já consome o stream da requisição e deixa o corpo
+// pronto em req.rawBody. Por isso Multer (que lê o req como stream) recebe um stream
+// já encerrado e falha com "Unexpected end of form". Usamos Busboy alimentado
+// diretamente pelo rawBody, que é o caminho recomendado pelo Firebase.
+function parseUpload(req) {
+  return new Promise((resolve, reject) => {
+    const busboy = Busboy({ headers: req.headers, limits: { files: 1, fileSize: MAX_UPLOAD_BYTES } });
+
+    let file = null;
+    let writeDone = null;
+    let tooLarge = false;
+
+    busboy.on('file', (fieldname, stream, info) => {
+      if (fieldname !== 'pdf' || file) {
+        stream.resume();
+        return;
+      }
+
+      const id = crypto.randomUUID();
+      const tmpPath = path.join(os.tmpdir(), id);
+      file = { path: tmpPath, filename: id, originalname: info.filename || 'documento.pdf' };
+
+      const out = fs.createWriteStream(tmpPath);
+      writeDone = new Promise((done, fail) => {
+        stream.on('limit', () => { tooLarge = true; });
+        stream.on('error', fail);
+        out.on('error', fail);
+        out.on('close', done);
+      });
+      stream.pipe(out);
+    });
+
+    busboy.on('error', reject);
+
+    busboy.on('close', async () => {
+      try {
+        if (writeDone) await writeDone;
+        if (tooLarge) {
+          fs.rmSync(file.path, { force: true });
+          return reject(new Error('O PDF excede o limite de 20MB.'));
+        }
+        resolve(file);
+      } catch (e) {
+        reject(e);
+      }
+    });
+
+    if (req.rawBody) busboy.end(req.rawBody);
+    else req.pipe(busboy);
+  });
+}
 
 const PROMPT = `Você é um instrutor especialista em origami e visão computacional.
 Sua tarefa é analisar a imagem extraída de um diagrama de origami e traduzir/interpretar o que deve ser feito no papel.
@@ -27,85 +83,92 @@ REGRAS RÍGIDAS:
 
 export const uploadPdf = onRequest(
   { cors: true, invoker: 'public', timeoutSeconds: 300, memory: '1GiB', secrets: ['GEMINI_PDF_KEY'] },
-  (req, res) => {
-    upload.single('pdf')(req, res, async (err) => {
-      if (err) return res.status(400).json({ error: err.message });
-      if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  async (req, res) => {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido.' });
 
-      const pdfPath = req.file.path;
-      const jobOutputDir = path.join(os.tmpdir(), req.file.filename);
+    let file;
+    try {
+      file = await parseUpload(req);
+    } catch (err) {
+      console.error('Erro ao ler o upload:', err);
+      return res.status(400).json({ error: err.message });
+    }
+    if (!file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
-      try {
-        console.log('Processando PDF:', req.file.originalname);
-        const result = await processPdf(pdfPath, jobOutputDir, req.file.originalname);
+    const pdfPath = file.path;
+    const jobOutputDir = path.join(os.tmpdir(), `job_${file.filename}`);
 
-        const pdfAI = new GoogleGenAI({ apiKey: process.env.GEMINI_PDF_KEY });
+    try {
+      console.log('Processando PDF:', file.originalname);
+      const result = await processPdf(pdfPath, jobOutputDir, file.originalname);
 
-        const foldData = {
-          title: req.file.originalname.replace('.pdf', ''),
-          coverImage: null,
-          steps: []
-        };
+      const pdfAI = new GoogleGenAI({ apiKey: process.env.GEMINI_PDF_KEY });
 
-        if (result.cover && fs.existsSync(result.cover)) {
-          foldData.coverImage = `data:image/jpeg;base64,${fs.readFileSync(result.cover).toString('base64')}`;
-        }
+      const foldData = {
+        title: file.originalname.replace(/\.pdf$/i, ''),
+        coverImage: null,
+        steps: []
+      };
 
-        const stepResults = await Promise.all(
-          result.steps
-            .filter(step => fs.existsSync(step.imagePath))
-            .map(async (step) => {
-              const base64Image = fs.readFileSync(step.imagePath).toString('base64');
-              try {
-                const response = await pdfAI.models.generateContent({
-                  model: 'gemini-2.0-flash',
-                  contents: [{
-                    role: 'user',
-                    parts: [
-                      { text: PROMPT },
-                      { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
-                    ]
-                  }]
-                });
-                return {
-                  stepNumber: step.stepNumber,
-                  instruction: response.text.trim(),
-                  image: `data:image/jpeg;base64,${base64Image}`
-                };
-              } catch (apiError) {
-                console.error(`Erro Gemini passo ${step.stepNumber}:`, apiError.message);
-                return {
-                  stepNumber: step.stepNumber,
-                  instruction: 'Instrução não pôde ser lida.',
-                  image: `data:image/jpeg;base64,${base64Image}`
-                };
-              }
-            })
-        );
-
-        foldData.steps = stepResults.sort((a, b) => a.stepNumber - b.stepNumber);
-
-        const foldFilePath = path.join(jobOutputDir, `${req.file.filename}.fold`);
-        createFoldFile(foldData, foldFilePath);
-
-        const foldFileBase64 = fs.readFileSync(foldFilePath).toString('base64');
-
-        res.json({
-          success: true,
-          foldData,
-          foldFileBase64,
-          filename: req.file.originalname.replace('.pdf', '.fold')
-        });
-
-      } catch (e) {
-        console.error('Erro ao processar PDF:', e);
-        res.status(500).json({ error: 'Erro ao processar o PDF.' });
-      } finally {
-        try {
-          fs.rmSync(jobOutputDir, { recursive: true, force: true });
-          fs.unlinkSync(pdfPath);
-        } catch (_) {}
+      if (result.cover && fs.existsSync(result.cover)) {
+        foldData.coverImage = `data:image/jpeg;base64,${fs.readFileSync(result.cover).toString('base64')}`;
       }
-    });
+
+      const stepResults = await Promise.all(
+        result.steps
+          .filter(step => fs.existsSync(step.imagePath))
+          .map(async (step) => {
+            const base64Image = fs.readFileSync(step.imagePath).toString('base64');
+            try {
+              const response = await pdfAI.models.generateContent({
+                model: GEMINI_MODEL,
+                contents: [{
+                  role: 'user',
+                  parts: [
+                    { text: PROMPT },
+                    { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
+                  ]
+                }]
+              });
+              return {
+                stepNumber: step.stepNumber,
+                instruction: response.text.trim(),
+                image: `data:image/jpeg;base64,${base64Image}`
+              };
+            } catch (apiError) {
+              console.error(`Erro Gemini passo ${step.stepNumber}:`, apiError.message);
+              return {
+                stepNumber: step.stepNumber,
+                instruction: 'Instrução não pôde ser lida.',
+                image: `data:image/jpeg;base64,${base64Image}`
+              };
+            }
+          })
+      );
+
+      foldData.steps = stepResults.sort((a, b) => a.stepNumber - b.stepNumber);
+      console.log(`Passos gerados: ${foldData.steps.length}, capa: ${foldData.coverImage ? 'sim' : 'não'}`);
+
+      const foldFilePath = path.join(jobOutputDir, `${file.filename}.fold`);
+      createFoldFile(foldData, foldFilePath);
+
+      const foldFileBase64 = fs.readFileSync(foldFilePath).toString('base64');
+
+      res.json({
+        success: true,
+        foldData,
+        foldFileBase64,
+        filename: file.originalname.replace(/\.pdf$/i, '') + '.fold'
+      });
+
+    } catch (e) {
+      console.error('Erro ao processar PDF:', e);
+      res.status(500).json({ error: `Erro ao processar o PDF: ${e.message}` });
+    } finally {
+      try {
+        fs.rmSync(jobOutputDir, { recursive: true, force: true });
+        fs.rmSync(pdfPath, { force: true });
+      } catch (_) {}
+    }
   }
 );

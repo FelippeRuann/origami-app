@@ -4,9 +4,26 @@ import * as ort from 'onnxruntime-node';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { createRequire } from 'module';
 
-GlobalWorkerOptions.workerSrc = '';
+// Em Node não existe worker de verdade: o pdfjs cai no "fake worker", que faz um
+// import dinâmico do caminho em workerSrc. Deixar isso vazio quebra com
+// 'No "GlobalWorkerOptions.workerSrc" specified' — apontamos para o arquivo real.
+const require = createRequire(import.meta.url);
+GlobalWorkerOptions.workerSrc = pathToFileURL(
+  require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
+).href;
+
+// Sem estes assets o pdfjs não desenha fontes padrão nem texto CJK — e os diagramas
+// japoneses/chineses chegariam ao Gemini sem os caracteres.
+// Caminho de disco (com barra final), não file:// — em Node o pdfjs lê estes
+// assets pelo filesystem e uma URL faria o readFile falhar.
+// Caminho de disco, não file:// — em Node o pdfjs lê estes assets pelo filesystem.
+// A barra final é obrigatória e precisa ser "/" mesmo no Windows.
+const PDFJS_ROOT = path.dirname(require.resolve('pdfjs-dist/package.json')).replace(/\\/g, '/');
+const STANDARD_FONTS = `${PDFJS_ROOT}/standard_fonts/`;
+const CMAPS = `${PDFJS_ROOT}/cmaps/`;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODEL_PATH = path.join(__dirname, '../models/best.onnx');
@@ -105,7 +122,15 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
   fs.mkdirSync(outputDir, { recursive: true });
 
   const pdfData = new Uint8Array(fs.readFileSync(pdfPath));
-  const pdf = await getDocument({ data: pdfData, useWorkerFetch: false, isEvalSupported: false, disableFontFace: true }).promise;
+  const pdf = await getDocument({
+    data: pdfData,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    disableFontFace: true,
+    standardFontDataUrl: STANDARD_FONTS,
+    cMapUrl: CMAPS,
+    cMapPacked: true,
+  }).promise;
 
   const result = { cover: null, steps: [] };
   let stepCounter = 1;
