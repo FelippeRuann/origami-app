@@ -14,3 +14,7 @@ firebase.json
 .firebaserc
 firestore.rules
 eas.json
+
+
+models/tesseract/
+functions/models/tesseract/

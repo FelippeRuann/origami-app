@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createRequire } from 'module';
+import { lerCamadaDeTexto, lerPorOcr, comecaModeloNovo, encerrarOcr } from './pageText.js';
 
 // Em Node não existe worker de verdade: o pdfjs cai no "fake worker", que faz um
 // import dinâmico do caminho em workerSrc. Deixar isso vazio quebra com
@@ -159,7 +160,7 @@ class NodeCanvasFactory {
   destroy({ canvas }) { canvas.width = 0; canvas.height = 0; }
 }
 
-export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf') {
+export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf', { splitModels = true } = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const pdfData = new Uint8Array(fs.readFileSync(pdfPath));
@@ -180,9 +181,22 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
     cover: null,
     steps: [],
     stats: { totalPages: pdf.numPages, pagesWithDetections: 0, maxConfidence: 0 },
+    models: [],
   };
   let stepCounter = 1;
   const canvasFactory = new NodeCanvasFactory();
+
+  // Um PDF pode conter DEZENAS de origamis (livros do Robert Lang, Yoshizawa...).
+  // Sem separá-los, o usuário recebe um .fold único e interminável com tudo
+  // embolado. Agrupamos por modelo usando título e reinício da contagem.
+  let modeloAtual = null;
+  let ultimoNumero = 0;
+
+  const abrirModelo = (titulo) => {
+    modeloAtual = { title: titulo || null, cover: null, steps: [], firstPage: 0 };
+    result.models.push(modeloAtual);
+    return modeloAtual;
+  };
 
   for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex++) {
     const page = await pdf.getPage(pageIndex + 1);
@@ -194,8 +208,37 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
     await page.render({ canvasContext: context, viewport, canvasFactory }).promise;
 
     const imgPath = path.join(outputDir, `page_${pageIndex}.jpg`);
-    fs.writeFileSync(imgPath, canvas.toBuffer('image/jpeg'));
+    const pageJpg = canvas.toBuffer('image/jpeg');
+    fs.writeFileSync(imgPath, pageJpg);
     canvasFactory.destroy({ canvas });
+
+    // --- de que modelo esta página faz parte? ---
+    let leitura = null;
+    try {
+      leitura = await lerCamadaDeTexto(page, actualHeight, 200 / 72);
+      if (!leitura && splitModels) leitura = await lerPorOcr(pageJpg, actualHeight);
+    } catch (e) {
+      console.error(`Leitura de texto falhou na página ${pageIndex + 1}:`, e.message);
+    }
+
+    if (splitModels) {
+      if (!modeloAtual) {
+        abrirModelo(leitura?.titulo);
+        modeloAtual.firstPage = pageIndex;
+      } else if (comecaModeloNovo(leitura, ultimoNumero, modeloAtual.title)) {
+        console.log(`Página ${pageIndex + 1}: novo modelo detectado` +
+                    (leitura?.titulo ? ` ("${leitura.titulo}")` : ' (contagem reiniciou)'));
+        abrirModelo(leitura?.titulo);
+        modeloAtual.firstPage = pageIndex;
+        ultimoNumero = 0;
+      } else if (!modeloAtual.title && leitura?.titulo) {
+        modeloAtual.title = leitura.titulo;
+      }
+      const nums = (leitura?.numeros || []).map(v => v.n);
+      if (nums.length) ultimoNumero = Math.max(ultimoNumero, ...nums);
+    } else if (!modeloAtual) {
+      abrirModelo(null);
+    }
 
     let dets = [];
     try {
@@ -215,15 +258,18 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
 
       for (const det of covers) {
         const [x1, y1, x2, y2] = det.box;
-        const cropPath = path.join(outputDir, 'cover.jpg');
+        const cropPath = path.join(outputDir, `cover_m${result.models.length}.jpg`);
         await sharp(imgPath).extract({ left: x1, top: y1, width: x2-x1, height: y2-y1 }).jpeg().toFile(cropPath);
-        result.cover = cropPath;
+        if (!result.cover) result.cover = cropPath;
+        if (!modeloAtual.cover) modeloAtual.cover = cropPath;
       }
       for (const det of steps) {
         const [x1, y1, x2, y2] = det.box;
         const cropPath = path.join(outputDir, `step_${stepCounter}.jpg`);
         await sharp(imgPath).extract({ left: x1, top: y1, width: x2-x1, height: y2-y1 }).jpeg().toFile(cropPath);
-        result.steps.push({ stepNumber: stepCounter, imagePath: cropPath });
+        const passo = { stepNumber: stepCounter, imagePath: cropPath };
+        result.steps.push(passo);
+        modeloAtual.steps.push({ ...passo, stepNumber: modeloAtual.steps.length + 1 });
         stepCounter++;
       }
     } else {
@@ -233,17 +279,31 @@ export async function processPdf(pdfPath, outputDir, originalName = 'unknown.pdf
         const cropPath = path.join(outputDir, 'cover.jpg');
         await sharp(imgPath).jpeg().toFile(cropPath);
         result.cover = cropPath;
+        modeloAtual.cover = cropPath;
       } else {
         const half = Math.floor(actualHeight / 2);
         for (const [top, height] of [[0, half], [half, actualHeight - half]]) {
           const cropPath = path.join(outputDir, `step_${stepCounter}.jpg`);
           await sharp(imgPath).extract({ left: 0, top, width: actualWidth, height }).jpeg().toFile(cropPath);
-          result.steps.push({ stepNumber: stepCounter, imagePath: cropPath });
+          const passo = { stepNumber: stepCounter, imagePath: cropPath };
+          result.steps.push(passo);
+          modeloAtual.steps.push({ ...passo, stepNumber: modeloAtual.steps.length + 1 });
           stepCounter++;
         }
       }
     }
   }
+
+  await encerrarOcr();
+
+  // Modelos sem passo nenhum são ruído (folha de rosto, índice, página em branco).
+  result.models = result.models.filter(m => m.steps.length > 0);
+  result.models.forEach((m, i) => {
+    if (!m.title) m.title = result.models.length > 1 ? `Modelo ${i + 1}` : null;
+  });
+
+  console.log(`Modelos encontrados: ${result.models.length} ` +
+              `(${result.models.map(m => `${m.title || 'sem titulo'}:${m.steps.length}`).join(', ')})`);
 
   return result;
 }
