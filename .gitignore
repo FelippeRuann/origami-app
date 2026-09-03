@@ -5,16 +5,35 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Variaveis de ambiente (o exemplo, com placeholders, fica versionado)
 .env*
 !.env.example
+
 .claude
-eas.json
-storage.rules
-firebase.json
-.firebaserc
-firestore.rules
-eas.json
 
+# Credenciais de build e assinatura
+eas.json
+credentials.json
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+*.cer
 
+# Configuracao do Firebase gerada por plataforma (contem chaves do projeto)
+google-services.json
+GoogleService-Info.plist
+
+# Chaves privadas de service account do Firebase Admin - NUNCA versionar
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+*serviceaccount*.json
+
+# Cache de deploy do Firebase
+.firebase/
+
+# Modelos de OCR (binarios grandes, baixados sob demanda)
 models/tesseract/
 functions/models/tesseract/

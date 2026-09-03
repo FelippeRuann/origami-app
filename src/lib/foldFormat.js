@@ -1,8 +1,19 @@
 import crypto from 'crypto';
 import AdmZip from 'adm-zip';
 
-// A chave secreta mestre do seu aplicativo (Deve ser guardada a 7 chaves no .env no futuro)
-const SECRET_KEY = crypto.createHash('sha256').update('CHAVE_REMOVIDA').digest();
+// A chave mestra vem da variavel de ambiente FOLD_SECRET (nunca versionada).
+// A derivacao e preguicosa para que o modulo possa ser importado antes de o
+// ambiente estar carregado (Cloud Functions injeta segredos so em tempo de execucao).
+let cachedKey = null;
+function getSecretKey() {
+  if (cachedKey) return cachedKey;
+  const secret = process.env.FOLD_SECRET;
+  if (!secret) {
+    throw new Error('FOLD_SECRET nao definida. Configure a variavel de ambiente antes de ler ou gravar arquivos .fold.');
+  }
+  cachedKey = crypto.createHash('sha256').update(secret).digest();
+  return cachedKey;
+}
 const IV_LENGTH = 16; // Para AES, o Initialization Vector tem 16 bytes
 
 /**
@@ -14,7 +25,7 @@ export function createFoldFile(data, outputPath) {
 
   // 2. Criptografia AES-256-CBC (Padrão militar/bancário)
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-cbc', SECRET_KEY, iv);
+  const cipher = crypto.createCipheriv('aes-256-cbc', getSecretKey(), iv);
   
   let encrypted = cipher.update(jsonString, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -41,6 +52,9 @@ export function createFoldFile(data, outputPath) {
  * Função que o aplicativo vai usar para ler o arquivo .fold
  */
 export function readFoldFile(filePath) {
+  // Fora do try: a falta de FOLD_SECRET e erro de configuracao, nao arquivo corrompido.
+  const key = getSecretKey();
+
   try {
     // 1. Abre o "ZIP" disfarçado
     const zip = new AdmZip(filePath);
@@ -65,7 +79,7 @@ export function readFoldFile(filePath) {
     const encryptedText = Buffer.from(textParts.join(':'), 'hex');
 
     // 5. Descriptografa
-    const decipher = crypto.createDecipheriv('aes-256-cbc', SECRET_KEY, iv);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
 

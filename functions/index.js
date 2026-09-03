@@ -88,7 +88,7 @@ REGRAS RÍGIDAS:
 5. Seja claro, direto, e nunca use frases como "Na imagem eu vejo" ou "Parece que". Diga apenas a instrução imperativa.`;
 
 export const uploadPdf = onRequest(
-  { cors: true, invoker: 'public', timeoutSeconds: 300, memory: '1GiB', secrets: ['GEMINI_PDF_KEY'] },
+  { cors: true, invoker: 'public', timeoutSeconds: 300, memory: '1GiB', secrets: ['GEMINI_PDF_KEY', 'FOLD_SECRET'] },
   async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido.' });
 

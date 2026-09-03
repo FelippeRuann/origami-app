@@ -10,12 +10,17 @@
  * Serve principalmente para conferir a QUALIDADE DA CONVERSÃO: se os recortes de passo
  * saíram bem enquadrados, se estão na ordem certa e se as instruções fazem sentido.
  */
+import 'dotenv/config';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 
-const SECRET_KEY = crypto.createHash('sha256').update('CHAVE_REMOVIDA').digest();
+if (!process.env.FOLD_SECRET) {
+  console.error('FOLD_SECRET nao definida. Adicione-a ao .env na raiz do projeto.');
+  process.exit(1);
+}
+const SECRET_KEY = crypto.createHash('sha256').update(process.env.FOLD_SECRET).digest();
 
 const foldPath = process.argv[2];
 const outDir = process.argv[3] || path.join(path.dirname(foldPath || '.'), 'fold-inspecionado');
