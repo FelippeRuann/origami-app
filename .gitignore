@@ -31,6 +31,13 @@ serviceAccountKey.json
 *-firebase-adminsdk-*.json
 *serviceaccount*.json
 
+# Regras de seguranca: gerenciadas no console, nunca versionadas
+*.rules
+
+# Documentacao interna: contem e-mails pessoais e as regras de seguranca
+DOCUMENTACAO.md
+models/CONTEXTO.md
+
 # Cache de deploy do Firebase
 .firebase/
 
