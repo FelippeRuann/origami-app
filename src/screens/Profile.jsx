@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { useApp } from '../context/AppContext';
+import { SUPPORT_EMAIL, isAdminEmail } from '../config/admin';
 
 const { width } = Dimensions.get('window');
 
@@ -156,7 +157,7 @@ export default function Profile() {
   };
 
   const handleSupportEmail = () => {
-    Linking.openURL('mailto:suporte@exemplo.com?subject=Ajuda%20-%20OrigamiApp');
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Ajuda%20-%20OrigamiApp`);
   };
 
   return (
@@ -165,7 +166,7 @@ export default function Profile() {
       <View style={[s.topBar, { backgroundColor: theme.bg }]}>
         <Text style={[s.logo, { color: theme.text }]}><Text style={{ color: theme.primary }}>Origami</Text>App</Text>
         <View style={s.topBarActions}>
-          {(user?.email === 'admin@exemplo.com' || user?.email === 'admin@exemplo.com') && (
+          {isAdminEmail(user?.email) && (
             <TouchableOpacity 
               style={[s.settingsBtn, { backgroundColor: theme.surface, borderColor: theme.border, marginRight: 10 }]} 
               onPress={() => setCurrentRoute('AdminDiscovery')}
@@ -528,7 +529,7 @@ export default function Profile() {
                 </TouchableOpacity>
 
                 {/* Dev: simulate Pro */}
-                {(user?.email === 'admin@exemplo.com' || user?.email === 'admin@exemplo.com' || user?.email === 'suporte@exemplo.com') && (
+                {isAdminEmail(user?.email) && (
                   !user?.isPro ? (
                     <TouchableOpacity
                       style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}

@@ -41,6 +41,6 @@ models/CONTEXTO.md
 # Cache de deploy do Firebase
 .firebase/
 
-# Modelos de OCR (binarios grandes, baixados sob demanda)
-models/tesseract/
-functions/models/tesseract/
+# Modelos, datasets e pesos treinados: binarios grandes, fora do Git
+models/
+functions/models/
