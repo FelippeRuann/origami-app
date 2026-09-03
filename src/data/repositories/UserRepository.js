@@ -61,6 +61,7 @@ export class UserRepository {
       isPro: extraData.isPro || false,
       isTeacher: extraData.isTeacher || false,
       watchedVideos: extraData.watchedVideos || 0,
+      username: extraData.username || null,
       teacherCode: extraData.teacherCode || null,
       streak: extraData.streak || 0,
       lastStreakDate: extraData.lastStreakDate || null,
@@ -96,6 +97,7 @@ export class UserRepository {
         isPro: extraData.isPro || false,
         isTeacher: extraData.isTeacher || false,
         watchedVideos: extraData.watchedVideos || 0,
+        username: extraData.username || null,
         teacherCode: extraData.teacherCode || null,
         streak: extraData.streak || 0,
         lastStreakDate: extraData.lastStreakDate || null,
@@ -133,6 +135,7 @@ export class UserRepository {
               isPro: extraData.isPro || false,
               isTeacher: extraData.isTeacher || false,
               watchedVideos: extraData.watchedVideos || 0,
+              username: extraData.username || null,
               teacherCode: extraData.teacherCode || null,
               streak: extraData.streak || 0,
               lastStreakDate: extraData.lastStreakDate || null,
@@ -151,6 +154,7 @@ export class UserRepository {
               isPro: false,
               isTeacher: false,
               watchedVideos: 0,
+              username: null,
               teacherCode: null
             }));
           }
@@ -187,8 +191,10 @@ export class UserRepository {
       }
 
       // Se tiver mudando algo no Firestore (isPro, rank, watchedVideos, etc)
+      // O name vai para os DOIS lados: displayName no Auth (que e a fonte lida
+      // pela sessao) e o doc do Firestore, de onde findTeacherByCode le o nome
+      // do origamista para mostrar a quem segue.
       const firestoreUpdates = { ...updates };
-      delete firestoreUpdates.name;
       delete firestoreUpdates.email;
       delete firestoreUpdates.id;
 

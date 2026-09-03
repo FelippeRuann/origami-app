@@ -10,7 +10,13 @@ import { processPdf } from './lib/processPdf.js';
 import { createFoldFile } from './lib/foldFormat.js';
 
 // Buscas de usuário no servidor (substituem o "allow list" das regras do Firestore)
-export { findTeacherByCode, findStudentByEmail } from './lib/userLookup.js';
+export {
+  findTeacherByCode,
+  findStudentByEmail,
+  findStudentByUsername,
+  checkUsername,
+  setUsername,
+} from './lib/userLookup.js';
 
 setGlobalOptions({ maxInstances: 5 });
 

@@ -251,16 +251,16 @@ export default function Pro() {
 
           {/* Adicionar aluno */}
           <View style={{ backgroundColor: theme.surface, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: theme.border, marginBottom: 16 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text, marginBottom: 8 }}>Vincular por E-mail</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text, marginBottom: 8 }}>Vincular por nome de usuário</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TextInput
                 style={[s.input, { flex: 1, color: theme.text, borderColor: theme.border, height: 44, paddingHorizontal: 12 }]}
-                placeholder="aluno@email.com"
+                placeholder="@nome.do.aprendiz"
                 placeholderTextColor={theme.textDim}
                 value={studentEmailInput}
-                onChangeText={setStudentEmailInput}
+                onChangeText={t => setStudentEmailInput(t.toLowerCase().replace(/[^a-z0-9._@]/g, ''))}
                 autoCapitalize="none"
-                keyboardType="email-address"
+                autoCorrect={false}
               />
               <TouchableOpacity
                 style={{ backgroundColor: theme.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' }}

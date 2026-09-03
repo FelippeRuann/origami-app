@@ -30,6 +30,8 @@ import { ManageProjectsUseCase } from '../domain/usecases/ManageProjectsUseCase'
 import { LocalProjectDataSource } from '../data/datasources/LocalProjectDataSource';
 import { RemoteProjectDataSource } from '../data/datasources/RemoteProjectDataSource';
 import { UserRepository } from '../data/repositories/UserRepository';
+import { UsernameRepository } from '../data/repositories/UsernameRepository';
+import { UserLookupRepository } from '../data/repositories/UserLookupRepository';
 import { FavoritesRepository } from '../data/repositories/FavoritesRepository';
 import { storage } from '../firebase';
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -279,6 +281,46 @@ export function AppProvider({ children }) {
     } catch (error) {
       console.error("Erro ao atualizar avatar:", error);
       return { success: false, error: error.message };
+    }
+  };
+
+  const updateName = async (newName) => {
+    if (!user) return { success: false, error: "Usuário não logado" };
+
+    const trimmed = (newName || '').trim().replace(/\s+/g, ' ');
+    if (trimmed.length < 2) return { success: false, error: "O nome precisa ter ao menos 2 caracteres." };
+    if (trimmed.length > 40) return { success: false, error: "O nome pode ter no máximo 40 caracteres." };
+    if (trimmed === user.name) return { success: true };
+
+    try {
+      const updatedUser = await AuthUseCase.updateUserSession({ name: trimmed });
+      setUser(updatedUser);
+      return { success: true };
+    } catch (error) {
+      console.error("Erro ao alterar o nome:", error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const checkUsername = async (candidato) => {
+    try {
+      return await UsernameRepository.check(candidato);
+    } catch (error) {
+      console.error("Erro ao consultar nome de usuário:", error);
+      return { available: false, reason: 'Não foi possível consultar agora.' };
+    }
+  };
+
+  const saveUsername = async (candidato) => {
+    if (!user) return { success: false, error: "Usuário não logado" };
+    try {
+      const { username } = await UsernameRepository.set(candidato);
+      setUser({ ...user, username });
+      return { success: true, username };
+    } catch (error) {
+      // HttpsError chega ao cliente com a mensagem em error.message
+      console.error("Erro ao salvar nome de usuário:", error);
+      return { success: false, error: error.message || 'Não foi possível salvar.' };
     }
   };
 
@@ -687,27 +729,26 @@ export function AppProvider({ children }) {
     const trimmedCode = `${clean.slice(0, 4)}-${clean.slice(4, 8)}`;
 
     try {
-      const { collection, getDocs, query, where, doc, setDoc } = await import('firebase/firestore');
+      const { doc, setDoc } = await import('firebase/firestore');
       const { db } = await import('../firebase');
 
-      // 1. Encontra o professor correspondente na coleção users
-      const q = query(collection(db, 'users'), where('isTeacher', '==', true), where('teacherCode', '==', trimmedCode));
-      const snap = await getDocs(q);
+      // 1. Encontra o professor pela Cloud Function. Era uma consulta direta a
+      // coleção `users` daqui, o que obrigava as regras a permitir `list` — e
+      // list liberado deixa qualquer logado varrer os dados de todos.
+      const encontrado = await UserLookupRepository.findTeacherByCode(trimmedCode);
 
-      if (snap.empty) {
+      if (!encontrado.found) {
         return { success: false, error: 'Código de professor não encontrado. Verifique a digitação.' };
       }
 
-      const teacherDoc = snap.docs[0];
-      const teacherId = teacherDoc.id;
-      const teacherData = teacherDoc.data();
+      const teacherId = encontrado.teacherId;
 
       // 2. Cria documento de inscrição para o Aluno
       const subObj = {
         id: teacherId,
         teacherId: teacherId,
-        teacherName: teacherData.name || 'Seu Professor',
-        teacherPhoto: teacherData.photo || null,
+        teacherName: encontrado.teacherName || 'Seu Professor',
+        teacherPhoto: encontrado.teacherPhoto || null,
         code: trimmedCode,
         joinedAt: new Date().toISOString()
       };
@@ -725,7 +766,7 @@ export function AppProvider({ children }) {
         const studentObj = {
           id: studentId,
           name: user.name || 'Aluno',
-          email: user.email || '',
+          username: user.username || null,
           progress: user.watchedVideos || 0,
           status: 'Ativo',
           joinedAt: new Date().toISOString()
@@ -758,43 +799,38 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Professor adiciona um aluno diretamente por E-mail
-  const addStudent = async (studentEmail) => {
+  // Professor adiciona um aluno pelo nome de usuário (@handle).
+  // Passa pela Cloud Function em vez de consultar a coleção `users` daqui: o
+  // cliente nao precisa mais varrer usuarios, e a function devolve so os
+  // campos necessarios.
+  const addStudent = async (studentUsername) => {
     if (!user) return { success: false, error: 'Faça login primeiro.' };
     const teacherId = user.id;
 
-    const emailClean = studentEmail.trim().toLowerCase();
-    if (!emailClean) return { success: false, error: 'E-mail em branco.' };
+    const handle = (studentUsername || '').trim().toLowerCase().replace(/^@/, '');
+    if (!handle) return { success: false, error: 'Informe o nome de usuário do aprendiz.' };
+    if (handle === user.username) return { success: false, error: 'Esse é o seu próprio nome de usuário.' };
 
-    const alreadyAdded = managedStudents.some(s => s.email === emailClean);
+    const alreadyAdded = managedStudents.some(s => s.username === handle);
     if (alreadyAdded) return { success: false, error: 'Este aluno já está na sua lista.' };
 
-    let studentId = 'temp_' + Date.now();
-    let studentName = emailClean.split('@')[0];
-    let foundRealUser = false;
-
     try {
-      const { collection, getDocs, query, where, doc, setDoc } = await import('firebase/firestore');
+      const { doc, setDoc } = await import('firebase/firestore');
       const { db } = await import('../firebase');
 
-      // Procura usuário pelo email
-      const userQuery = query(collection(db, 'users'), where('email', '==', emailClean));
-      const querySnap = await getDocs(userQuery);
-
-      if (!querySnap.empty) {
-        const foundDoc = querySnap.docs[0];
-        studentId = foundDoc.id;
-        const realUserData = foundDoc.data();
-        studentName = realUserData.name || studentName;
-        foundRealUser = true;
+      const found = await UsernameRepository.findStudent(handle);
+      if (!found.found) {
+        return { success: false, error: `Ninguém usa @${handle}. Confira com o aprendiz — ele precisa ter conta e ter escolhido um nome de usuário.` };
       }
+
+      const studentId = found.studentId;
 
       const newStudentObj = {
         id: studentId,
-        name: studentName,
-        email: emailClean,
-        progress: foundRealUser ? (querySnap.docs[0].data().watchedVideos || 0) : 0,
-        status: foundRealUser ? 'Ativo' : 'Pendente',
+        name: found.name || handle,
+        username: handle,
+        progress: found.watchedVideos || 0,
+        status: 'Ativo',
         addedAt: new Date().toISOString()
       };
 
@@ -802,8 +838,8 @@ export function AppProvider({ children }) {
       const studentDocRef = doc(db, 'users', teacherId, 'students', studentId);
       await setDoc(studentDocRef, newStudentObj);
 
-      // Se for usuário real, adiciona a inscrição correspondente do professor para ele
-      if (foundRealUser) {
+      // Inscrição correspondente do lado do aprendiz
+      {
         const subDocRef = doc(db, 'users', studentId, 'subscriptions', teacherId);
         await setDoc(subDocRef, {
           id: teacherId,
@@ -816,11 +852,11 @@ export function AppProvider({ children }) {
       }
 
       // Atualiza local
-      const updatedList = [newStudentObj, ...managedStudents.filter(s => s.email !== emailClean)];
+      const updatedList = [newStudentObj, ...managedStudents.filter(s => s.username !== handle)];
       setManagedStudents(updatedList);
       await AsyncStorage.setItem(`@managed_students_${teacherId}`, JSON.stringify(updatedList));
 
-      return { success: true, isPending: !foundRealUser, message: foundRealUser ? 'Aluno adicionado com sucesso!' : 'E-mail não cadastrado ainda. Esse aluno aparecerá como pendente até criar uma conta.' };
+      return { success: true, isPending: false, message: `@${handle} agora é seu aprendiz!` };
     } catch (e) {
       console.error("Erro ao adicionar aluno:", e);
       // Fallback local caso offline
@@ -1042,7 +1078,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      user, login, loginWithGoogleToken, register, logout, isAuthReady, isInitialLoading, resetPassword, updateAvatar, removeAvatar,
+      user, login, loginWithGoogleToken, register, logout, isAuthReady, isInitialLoading, resetPassword, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername,
       isDarkMode, toggleTheme, theme,
       currentDetail, setCurrentDetail,
       foldingOrigami, setFoldingOrigami,

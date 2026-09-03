@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, Linking, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions, Modal, Animated, Image, ActivityIndicator, Alert, Switch, TextInput, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
@@ -9,9 +9,14 @@ import { SUPPORT_EMAIL, isAdminEmail } from '../config/admin';
 const { width } = Dimensions.get('window');
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, soundsEnabled, updateSoundsEnabled, pendingProOpen, setPendingProOpen, scrollToTopSignal } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, soundsEnabled, updateSoundsEnabled, pendingProOpen, setPendingProOpen, scrollToTopSignal } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [userDraft, setUserDraft] = useState('');
+  const [userStatus, setUserStatus] = useState(null); // { available, reason }
+  const [savingUser, setSavingUser] = useState(false);
   const [showRankSelector, setShowRankSelector] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProPage, setShowProPage] = useState(false);
@@ -153,6 +158,43 @@ export default function Profile() {
     } catch (e) {
       console.warn('Erro ao configurar notificações:', e);
       Alert.alert('Erro', 'Não foi possível configurar as notificações. Tente novamente.');
+    }
+  };
+
+  // Consulta com debounce: sem isso cada tecla vira uma chamada de function.
+  useEffect(() => {
+    const alvo = userDraft.trim().toLowerCase();
+    if (!alvo || alvo === (user?.username || '')) { setUserStatus(null); return; }
+
+    let cancelado = false;
+    const timer = setTimeout(async () => {
+      const res = await checkUsername(alvo);
+      if (!cancelado) setUserStatus(res);
+    }, 500);
+
+    return () => { cancelado = true; clearTimeout(timer); };
+  }, [userDraft, user?.username]);
+
+  const handleSaveUsername = async () => {
+    setSavingUser(true);
+    const res = await saveUsername(userDraft);
+    setSavingUser(false);
+    if (res.success) {
+      setUserStatus({ available: true, reason: null });
+      Alert.alert('Pronto', `Seu nome de usuário agora é @${res.username}`);
+    } else {
+      Alert.alert('Não foi possível salvar', res.error);
+    }
+  };
+
+  const handleSaveName = async () => {
+    setSavingName(true);
+    const res = await updateName(nameDraft);
+    setSavingName(false);
+    if (res.success) {
+      setShowEditProfile(false);
+    } else {
+      Alert.alert('Não foi possível alterar', res.error);
     }
   };
 
@@ -306,7 +348,65 @@ export default function Profile() {
 
             ) : showEditProfile ? (
               <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <TouchableOpacity style={s.linkRow} onPress={handlePickImage}>
+                <View style={s.nameEditRow}>
+                  <Text style={[s.nameEditLabel, { color: theme.textDim }]}>Nome de usuário</Text>
+                  <TextInput
+                    value={nameDraft}
+                    onChangeText={setNameDraft}
+                    placeholder="Como você quer ser chamado"
+                    placeholderTextColor={theme.textDim}
+                    maxLength={40}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveName}
+                    style={[s.nameEditInput, { color: theme.text, backgroundColor: theme.bg, borderColor: theme.border }]}
+                  />
+                  <TouchableOpacity
+                    style={[s.nameEditBtn, { backgroundColor: theme.primary, opacity: savingName ? 0.6 : 1 }]}
+                    onPress={handleSaveName}
+                    disabled={savingName}
+                  >
+                    {savingName
+                      ? <ActivityIndicator size="small" color={theme.bg} />
+                      : <Text style={[s.nameEditBtnText, { color: theme.bg }]}>Salvar nome</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[s.nameEditRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                  <Text style={[s.nameEditLabel, { color: theme.textDim }]}>Nome de usuário</Text>
+                  <View style={s.userInputWrap}>
+                    <Text style={[s.userAt, { color: theme.textDim }]}>@</Text>
+                    <TextInput
+                      value={userDraft}
+                      onChangeText={t => setUserDraft(t.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
+                      placeholder="seu.nome"
+                      placeholderTextColor={theme.textDim}
+                      maxLength={20}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={[s.userInput, { color: theme.text, backgroundColor: theme.bg, borderColor: theme.border }]}
+                    />
+                  </View>
+                  {userStatus && (
+                    <Text style={[s.userHint, { color: userStatus.available ? theme.primary : theme.danger }]}>
+                      {userStatus.available ? 'Disponível' : userStatus.reason}
+                    </Text>
+                  )}
+                  <Text style={[s.userHint, { color: theme.textDim }]}>
+                    É por ele que um origamista encontra você para vincular como aprendiz.
+                  </Text>
+                  <TouchableOpacity
+                    style={[s.nameEditBtn, { backgroundColor: theme.primary, opacity: (savingUser || userStatus?.available === false) ? 0.5 : 1 }]}
+                    onPress={handleSaveUsername}
+                    disabled={savingUser || userStatus?.available === false}
+                  >
+                    {savingUser
+                      ? <ActivityIndicator size="small" color={theme.bg} />
+                      : <Text style={[s.nameEditBtnText, { color: theme.bg }]}>Salvar nome de usuário</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={handlePickImage}>
                   <Text style={[s.linkText, { color: theme.primary }]}>Escolher nova foto da galeria</Text>
                   <Feather name="image" size={20} color={theme.primary} />
                 </TouchableOpacity>
@@ -494,7 +594,7 @@ export default function Profile() {
 
             ) : (
               <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <TouchableOpacity style={s.linkRow} onPress={() => setShowEditProfile(true)}>
+                <TouchableOpacity style={s.linkRow} onPress={() => { setNameDraft(user?.name || ''); setUserDraft(user?.username || ''); setUserStatus(null); setShowEditProfile(true); }}>
                   <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil (Foto)</Text>
                   <Feather name="edit-2" size={20} color={theme.textDim} />
                 </TouchableOpacity>
@@ -611,6 +711,15 @@ const s = StyleSheet.create({
   linksCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
   linkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
   linkText: { fontSize: 15, fontWeight: '600' },
+  nameEditRow: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18 },
+  nameEditLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  nameEditInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
+  nameEditBtn: { marginTop: 12, borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  nameEditBtnText: { fontSize: 15, fontWeight: '700' },
+  userInputWrap: { flexDirection: 'row', alignItems: 'center' },
+  userAt: { fontSize: 16, fontWeight: '700', marginRight: 6 },
+  userInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
+  userHint: { fontSize: 12, marginTop: 6, lineHeight: 16 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0 },
