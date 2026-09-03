@@ -324,6 +324,36 @@ export function AppProvider({ children }) {
     }
   };
 
+  const requestEmailChange = async (senhaAtual, novoEmail) => {
+    if (!user) return { success: false, error: 'Usuário não logado' };
+
+    const alvo = (novoEmail || '').trim().toLowerCase();
+    if (!alvo.includes('@') || alvo.length < 5) return { success: false, error: 'E-mail inválido.' };
+    if (alvo === (user.email || '').toLowerCase()) return { success: false, error: 'Esse já é o seu e-mail atual.' };
+    if (!senhaAtual) return { success: false, error: 'Digite sua senha atual para confirmar.' };
+
+    try {
+      await AuthUseCase.requestEmailChange(senhaAtual, alvo);
+      return {
+        success: true,
+        message: `Enviamos um link de confirmação para ${alvo}. A troca só vale depois que você clicar nele — e aí precisa entrar de novo com o e-mail novo.`,
+      };
+    } catch (error) {
+      // Os codigos do Firebase nao servem para mostrar ao usuario
+      const traducao = {
+        'auth/wrong-password': 'Senha incorreta.',
+        'auth/invalid-credential': 'Senha incorreta.',
+        'auth/invalid-email': 'O e-mail digitado não é válido.',
+        'auth/email-already-in-use': 'Esse e-mail já está em uso por outra conta.',
+        'auth/requires-recent-login': 'Por segurança, saia e entre novamente antes de trocar o e-mail.',
+        'auth/too-many-requests': 'Muitas tentativas. Espere alguns minutos.',
+        'auth/operation-not-allowed': 'A troca de e-mail está desativada no projeto do Firebase.',
+      };
+      console.error("Erro ao solicitar troca de e-mail:", error);
+      return { success: false, error: traducao[error.code] || error.message || 'Não foi possível solicitar a troca.' };
+    }
+  };
+
   const removeAvatar = async () => {
     if (!user) return { success: false, error: "Usuário não logado" };
     try {
@@ -1078,7 +1108,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      user, login, loginWithGoogleToken, register, logout, isAuthReady, isInitialLoading, resetPassword, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername,
+      user, login, loginWithGoogleToken, register, logout, isAuthReady, isInitialLoading, resetPassword, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername, requestEmailChange,
       isDarkMode, toggleTheme, theme,
       currentDetail, setCurrentDetail,
       foldingOrigami, setFoldingOrigami,

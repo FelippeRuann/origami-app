@@ -6,7 +6,10 @@ import {
   signOut,
   updateProfile,
   GoogleAuthProvider,
-  signInWithCredential
+  signInWithCredential,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  verifyBeforeUpdateEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 
@@ -178,6 +181,34 @@ export class UserRepository {
   }
 
   // [UPDATE] Atualiza dados do Usuário (ex: foto, rank)
+  /**
+   * Pede a troca do e-mail de acesso.
+   *
+   * Nao troca na hora de proposito: verifyBeforeUpdateEmail manda um link para
+   * o endereco NOVO, e a troca so acontece quando a pessoa clica. Isso impede
+   * alguem de sequestrar a conta apontando para um e-mail que nao controla.
+   *
+   * Antes disso o Firebase exige reautenticacao — se a sessao for antiga ele
+   * recusa com auth/requires-recent-login. Por isso a senha atual e obrigatoria.
+   */
+  static async requestEmailChange(currentPassword, newEmail) {
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('Nenhum usuário logado.');
+
+    // Conta Google nao tem senha, e o e-mail e gerenciado la. Reautenticar
+    // exigiria refazer o fluxo do Google; trocar o e-mail nem faria sentido.
+    const porSenha = currentUser.providerData.some(p => p.providerId === 'password');
+    if (!porSenha) {
+      throw new Error('Sua conta entra pelo Google. O e-mail é gerenciado na sua Conta Google, não aqui.');
+    }
+
+    const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+    await reauthenticateWithCredential(currentUser, credential);
+    await verifyBeforeUpdateEmail(currentUser, newEmail.trim().toLowerCase());
+
+    return { pendingEmail: newEmail.trim().toLowerCase() };
+  }
+
   static async updateUserSession(updates) {
     const currentUser = auth.currentUser;
     if (currentUser) {

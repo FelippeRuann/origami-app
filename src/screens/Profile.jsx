@@ -9,7 +9,7 @@ import { SUPPORT_EMAIL, isAdminEmail } from '../config/admin';
 const { width } = Dimensions.get('window');
 
 export default function Profile() {
-  const { user, theme, logout, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, soundsEnabled, updateSoundsEnabled, pendingProOpen, setPendingProOpen, scrollToTopSignal } = useApp();
+  const { user, theme, logout, updateAvatar, removeAvatar, updateName, checkUsername, saveUsername, requestEmailChange, isDarkMode, toggleTheme, upgradeToPro, downgradeFromPro, importedProjects, setCurrentRoute, ACHIEVEMENT_DEFS, updateRank, notifPrefs, updateNotifPrefs, hapticsEnabled, updateHapticsEnabled, soundsEnabled, updateSoundsEnabled, pendingProOpen, setPendingProOpen, scrollToTopSignal } = useApp();
   const [showSettings, setShowSettings] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
@@ -17,6 +17,10 @@ export default function Profile() {
   const [userDraft, setUserDraft] = useState('');
   const [userStatus, setUserStatus] = useState(null); // { available, reason }
   const [savingUser, setSavingUser] = useState(false);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [showRankSelector, setShowRankSelector] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProPage, setShowProPage] = useState(false);
@@ -63,6 +67,8 @@ export default function Profile() {
       setShowRankSelector(false);
       setShowNotifications(false);
       setShowProPage(false);
+      setShowChangeEmail(false);
+      setEmailPassword('');
     });
   };
 
@@ -175,6 +181,21 @@ export default function Profile() {
     return () => { cancelado = true; clearTimeout(timer); };
   }, [userDraft, user?.username]);
 
+  const handleRequestEmailChange = async () => {
+    setSendingEmail(true);
+    const res = await requestEmailChange(emailPassword, emailDraft);
+    setSendingEmail(false);
+    // A senha nunca fica no estado depois da tentativa, dando certo ou errado.
+    setEmailPassword('');
+    if (res.success) {
+      setShowChangeEmail(false);
+      setEmailDraft('');
+      Alert.alert('Confirme no seu e-mail', res.message);
+    } else {
+      Alert.alert('Não foi possível trocar', res.error);
+    }
+  };
+
   const handleSaveUsername = async () => {
     setSavingUser(true);
     const res = await saveUsername(userDraft);
@@ -252,7 +273,9 @@ export default function Profile() {
             )}
           </TouchableOpacity>
           <Text style={[s.name, { color: theme.text }]}>{user?.name || 'Origami Master'}</Text>
-          <Text style={[s.email, { color: theme.textMuted }]}>{user?.email || 'master@origamiapp.com'}</Text>
+          <Text style={[s.handle, { color: theme.textMuted }]}>
+            {user?.username ? `@${user.username}` : 'defina seu nome de usuário'}
+          </Text>
           
           <View style={s.statsContainer}>
             <View style={[s.statBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -313,7 +336,7 @@ export default function Profile() {
           <Animated.View style={[s.modalContent, { backgroundColor: theme.bg, borderColor: theme.border, transform: [{ translateY: slideAnim }] }]}>
             <View style={s.modalHeader}>
               <Text style={[s.modalTitle, { color: theme.text }]}>
-                {showRankSelector ? 'Nível de Dobragem' : showEditProfile ? 'Editar Perfil' : showNotifications ? 'Notificações' : showProPage ? 'Plano Pro' : 'Configurações'}
+                {showRankSelector ? 'Nível de Dobragem' : showEditProfile ? 'Editar Perfil' : showChangeEmail ? 'E-mail de acesso' : showNotifications ? 'Notificações' : showProPage ? 'Plano Pro' : 'Configurações'}
               </Text>
               <TouchableOpacity onPress={handleCloseSettings} style={s.closeBtn}>
                 <Feather name="x" size={24} color={theme.text} />
@@ -425,6 +448,59 @@ export default function Profile() {
                 <TouchableOpacity
                   style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
                   onPress={() => setShowEditProfile(false)}
+                >
+                  <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
+                  <Feather name="arrow-left" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+              </View>
+
+            ) : showChangeEmail ? (
+              <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <View style={s.nameEditRow}>
+                  <Text style={[s.nameEditLabel, { color: theme.textDim }]}>E-mail atual</Text>
+                  <Text style={[s.emailAtual, { color: theme.text }]}>{user?.email}</Text>
+
+                  <Text style={[s.nameEditLabel, { color: theme.textDim, marginTop: 18 }]}>Novo e-mail</Text>
+                  <TextInput
+                    value={emailDraft}
+                    onChangeText={t => setEmailDraft(t.trim())}
+                    placeholder="novo@email.com"
+                    placeholderTextColor={theme.textDim}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    style={[s.nameEditInput, { color: theme.text, backgroundColor: theme.bg, borderColor: theme.border }]}
+                  />
+
+                  <Text style={[s.nameEditLabel, { color: theme.textDim, marginTop: 18 }]}>Sua senha atual</Text>
+                  <TextInput
+                    value={emailPassword}
+                    onChangeText={setEmailPassword}
+                    placeholder="Para confirmar que é você"
+                    placeholderTextColor={theme.textDim}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    style={[s.nameEditInput, { color: theme.text, backgroundColor: theme.bg, borderColor: theme.border }]}
+                  />
+
+                  <Text style={[s.userHint, { color: theme.textDim }]}>
+                    Vamos enviar um link de confirmação para o endereço novo. A troca só acontece depois que você clicar nele, e então será preciso entrar de novo.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[s.nameEditBtn, { backgroundColor: theme.primary, opacity: sendingEmail ? 0.6 : 1 }]}
+                    onPress={handleRequestEmailChange}
+                    disabled={sendingEmail}
+                  >
+                    {sendingEmail
+                      ? <ActivityIndicator size="small" color={theme.bg} />
+                      : <Text style={[s.nameEditBtnText, { color: theme.bg }]}>Enviar confirmação</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                  onPress={() => { setShowChangeEmail(false); setEmailPassword(''); }}
                 >
                   <Text style={[s.linkText, { color: theme.textDim }]}>Voltar</Text>
                   <Feather name="arrow-left" size={20} color={theme.textDim} />
@@ -595,8 +671,15 @@ export default function Profile() {
             ) : (
               <View style={[s.linksCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <TouchableOpacity style={s.linkRow} onPress={() => { setNameDraft(user?.name || ''); setUserDraft(user?.username || ''); setUserStatus(null); setShowEditProfile(true); }}>
-                  <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil (Foto)</Text>
+                  <Text style={[s.linkText, { color: theme.text }]}>Editar Perfil</Text>
                   <Feather name="edit-2" size={20} color={theme.textDim} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+                  onPress={() => { setEmailDraft(''); setEmailPassword(''); setShowChangeEmail(true); }}
+                >
+                  <Text style={[s.linkText, { color: theme.text }]}>E-mail de acesso</Text>
+                  <Feather name="mail" size={20} color={theme.textDim} />
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.linkRow, { borderTopWidth: 1, borderTopColor: theme.border }]} onPress={() => setShowRankSelector(true)}>
                   <View>
@@ -691,7 +774,7 @@ const s = StyleSheet.create({
   proBadge: { position: 'absolute', bottom: -8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   proText: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
   name: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
-  email: { fontSize: 14, marginBottom: 24 },
+  handle: { fontSize: 14, marginBottom: 24 },
   
   statsContainer: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, width: '100%' },
   statBox: { flex: 1, paddingVertical: 16, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
@@ -720,6 +803,7 @@ const s = StyleSheet.create({
   userAt: { fontSize: 16, fontWeight: '700', marginRight: 6 },
   userInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
   userHint: { fontSize: 12, marginTop: 6, lineHeight: 16 },
+  emailAtual: { fontSize: 15, fontWeight: '600' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0 },

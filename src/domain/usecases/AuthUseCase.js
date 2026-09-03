@@ -40,6 +40,10 @@ export class AuthUseCase {
     return await UserRepository.updateUserSession({ photo: url });
   }
 
+  static async requestEmailChange(currentPassword, newEmail) {
+    return await UserRepository.requestEmailChange(currentPassword, newEmail);
+  }
+
   static async updateUserSession(updates) {
     return await UserRepository.updateUserSession(updates);
   }
