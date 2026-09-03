@@ -6,8 +6,16 @@ conquistas e nível de dobradura.
 
 React Native + Expo, com backend em Firebase.
 
-<!-- Coloque aqui 3 ou 4 capturas de tela do app rodando, ou um GIF curto.
-     É a primeira coisa que alguém olha — vale mais que qualquer parágrafo. -->
+<p align="center">
+  <img src="docs/screenshots/discover.jpg"   width="24%" alt="Tela Discover: feed de tutoriais curados" />
+  <img src="docs/screenshots/biblioteca.jpg" width="24%" alt="Biblioteca: projetos salvos com progresso" />
+  <img src="docs/screenshots/conversor.jpg"  width="24%" alt="Ferramentas do Criador: conversão de PDF em tutorial" />
+  <img src="docs/screenshots/perfil.jpg"     width="24%" alt="Perfil: conquistas, streak e nível de dobradura" />
+</p>
+
+<p align="center">
+  <sub>Descoberta curada &middot; Biblioteca pessoal &middot; Conversão de PDF &middot; Progresso e conquistas</sub>
+</p>
 
 ## O problema
 
